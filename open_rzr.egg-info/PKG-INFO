@@ -1,0 +1,153 @@
+Metadata-Version: 2.4
+Name: open-rzr
+Version: 0.1.0
+Summary: Open-source configurator for Razer mice (Naga Pro) on Linux and Windows. No telemetry, no accounts.
+License-Expression: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: PySide6-Essentials>=6.5
+Requires-Dist: hidapi>=0.14; sys_platform != "linux"
+Provides-Extra: build
+Requires-Dist: pyinstaller>=6.0; extra == "build"
+Dynamic: license-file
+
+# open-rzr
+
+Открытая программа для настройки мыши **Razer Naga Pro** на **Linux и Windows**. Заменяет Razer Synapse там, где он нужен для мыши: DPI, частота опроса, батарея, сон, переназначение кнопок и макросы.
+
+- **Без аналитики, телеметрии и аккаунтов.** Программа не обращается к сети. Настройки хранятся в памяти мыши и в одном локальном JSON-файле.
+- **Одна кодовая база** для Linux и Windows (Python + Qt/PySide6).
+- **Настройки живут в мыши.** Назначения кнопок, стадии DPI и макросы записываются во встроенную память Naga Pro. После этого они работают без программы, на любом компьютере и в любой ОС.
+
+> Проект независимый, с Razer Inc. не связан. Код Synapse не используется: программа общается с мышью по HID-протоколу, который изучило сообщество (ссылки в конце).
+
+## Возможности
+
+| Раздел | Что умеет |
+|---|---|
+| Устройство | модель, прошивка, серийный номер, заряд и зарядка (автообновление раз в минуту) |
+| Производительность | до 5 стадий DPI (X/Y раздельно, 100–20000), активная стадия, частота опроса 125/500/1000 Гц |
+| Кнопки | считывание всех кнопок мыши, включая 2/6/12-кнопочные боковые панели; назначение клавиши или сочетания, кнопки мыши, двойного клика, турбо, медиаклавиши, макроса, переключения DPI, «снайпера», профиля, Hypershift; слой Hypershift; 5 профилей в памяти мыши и временный режим; поиск кнопки нажатием; резервная копия и восстановление |
+| Макросы | запись с клавиатуры и мыши (с реальными или фиксированными паузами), ручное редактирование, запись в память мыши, режимы запуска: N раз, пока удерживается, вкл/выкл, по шагам; локальная библиотека |
+| Подсветка | колесо, логотип и боковая панель: статичный цвет, спектр, волна, дыхание (1/2/случайные цвета), реакция на нажатие, свои цвета для каждого из 3 светодиодов боковой панели, яркость каждой зоны, режим «одинаково для всех зон» |
+| Питание | время до сна (1–15 мин), порог предупреждения о разряде |
+| Диагностика | журнал пакетов, ручная отправка любой команды, сохранение отчёта в JSON |
+
+## Установка
+
+### Linux
+
+Готовая сборка: `open-rzr-<версия>-x86_64.AppImage`. Сделайте файл исполняемым (`chmod +x`) и запустите. При первом запуске программа сама предложит установить правило доступа к мыши (udev) и спросит пароль администратора. То же из консоли: `./open-rzr-….AppImage install-udev`.
+
+Установка из исходников:
+
+```bash
+cd open-rzr
+./packaging/linux/install.sh      # venv в ~/.local/share/open-rzr + udev-правило (спросит sudo)
+open-rzr                          # GUI
+open-rzr-cli info                 # консоль
+```
+
+Без установщика:
+
+```bash
+pip install PySide6
+sudo cp packaging/linux/99-open-rzr.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+python3 -m openrzr
+```
+
+На Linux программа работает напрямую с `/dev/hidraw*`, без драйверов и hidapi. Курсор при этом не «отваливается»: драйвер мыши ядра не отключается. Если у вас установлен OpenRazer, остановите его демон (`systemctl --user stop openrazer-daemon`), чтобы программы не мешали друг другу.
+
+### Windows
+
+Готовая сборка: `open-rzr-<версия>-windows-x64-setup.exe` (установщик, права администратора не нужны) или `…-portable.zip` (распаковать и запустить `open-rzr.exe`).
+
+Перед запуском **закройте Razer Synapse** и остановите службы Razer (`services.msc` → Razer Synapse Service, Razer Central Service, Razer Elevation Service → «Остановить», тип запуска «Вручную»). Synapse тоже общается с мышью, и тогда ответы перемешиваются. Его можно и удалить: open-rzr он не нужен.
+
+Запуск из исходников без сборки: `packaging\windows\run.bat` (нужен Python 3.9+).
+
+## Сборка
+
+PyInstaller не умеет собирать Windows-версию на Linux и наоборот, поэтому каждая ОС собирается у себя. Оба скрипта ставят зависимости в `.venv`, прогоняют тесты, собирают программу по общему `packaging/open-rzr.spec` и проверяют, что она запускается. Результат появляется в `dist/`.
+
+| ОС | Команда | Что получится |
+|---|---|---|
+| Windows | `powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1` | `open-rzr-<ver>-windows-x64-portable.zip`, `…-setup.exe` (если стоит [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`) |
+| Linux | `./packaging/linux/build.sh` | `open-rzr-<ver>-linux-x86_64.tar.gz`, `open-rzr-<ver>-x86_64.AppImage` |
+
+В каждой сборке две программы: `open-rzr` (окно) и `open-rzr-cli` (консоль). Версия берётся из `openrzr/__init__.py`.
+
+**Автоматически через GitHub.** Скопируйте `packaging/ci/github-build.yml` в `.github/workflows/build.yml` (Windows: `mkdir .github\workflows; copy packaging\ci\github-build.yml .github\workflows\build.yml`). После этого GitHub соберёт обе ОС на серверах GitHub при каждом push. Готовые файлы появятся во вкладке Actions → нужный запуск → Artifacts. Тег вида `v0.1.0` (`git tag v0.1.0 && git push --tags`) создаёт релиз со всеми файлами и контрольными суммами.
+
+Для Linux-сборки нужны системные библиотеки Qt: на Ubuntu/Debian `sudo apt install libxcb-cursor0 libxkbcommon-x11-0`. Для AppImage на старых системах ещё нужен `libfuse2`.
+
+## Первый запуск: сделайте резервную копию
+
+Перед первыми экспериментами сохраните текущее состояние мыши: **Кнопки → Резервная копия…** или
+
+```bash
+open-rzr-cli backup naga-original.json --profiles 1,2,3,4,5
+```
+
+Вернуть всё как было: `open-rzr-cli restore naga-original.json`.
+
+## Как устроены кнопки
+
+У Naga Pro сменные боковые панели, и у каждой свой набор кнопок. Поэтому номера кнопок не зашиты в программу: «Считать кнопки» опрашивает все идентификаторы 0x01–0x7F, и мышь сама сообщает, какие есть. По заводским назначениям (клавиши `1…9, 0, -, =`) программа подписывает их «Боковая 1…12». Кнопку можно переименовать через правый клик. Кнопка «Найти нажатием…» выделяет в списке ту кнопку, которую вы нажали на мыши.
+
+## Консольный режим
+
+```bash
+open-rzr-cli list                             # найденные устройства
+open-rzr-cli info
+open-rzr-cli dpi 1600
+open-rzr-cli stages 800 1600 3200 --active 2
+open-rzr-cli poll 1000
+open-rzr-cli idle 300
+open-rzr-cli buttons                          # таблица кнопок и назначений
+open-rzr-cli bind 0x40 key ctrl+shift+c       # кнопка -> сочетание
+open-rzr-cli bind 0x41 mouse back
+open-rzr-cli bind 0x42 dpi aim 400            # «снайпер», пока зажата
+open-rzr-cli bind 0x43 media volup
+open-rzr-cli macro write 3 "ctrl+a, 30ms, ctrl+c"
+open-rzr-cli bind 0x44 macro 3 --mode hold
+open-rzr-cli light all static 00ff80          # подсветка всех зон
+open-rzr-cli light logo breath2 red blue
+open-rzr-cli light side custom red green blue  # 3 светодиода боковой панели
+open-rzr-cli brightness all 40
+open-rzr-cli --profile 2 bind 0x40 key f5     # в профиль 2
+open-rzr-cli bind 0x40 key f5 --hypershift    # на слой Hypershift
+open-rzr-cli -v raw 0x0085 --size 1           # любая команда + журнал пакетов
+```
+
+`--mock` запускает всё на встроенном эмуляторе мыши (`python -m openrzr --mock-gui` — GUI без мыши).
+
+## Если что-то не работает
+
+Команды для DPI, опроса, батареи, сна и подсветки совпадают с теми, которые OpenRazer давно использует для Naga Pro. Переназначение кнопок и макросы взяты из исследования протокола мышей того же поколения (Basilisk V3) и **на настоящей Naga Pro ещё не проверены**. Если что-то не срабатывает, откройте **Диагностика**, включите «Записывать все пакеты», повторите действие и сохраните отчёт: в нём видно, какая команда вернула ошибку.
+
+## Структура
+
+```
+openrzr/
+  protocol.py    пакет 90 байт, CRC, коды команд
+  transport.py   hidraw (Linux), hidapi (Windows), выбор интерфейса, повторы при BUSY
+  devices.py     таблица поддерживаемых мышей — новые модели добавляются здесь
+  device.py      API мыши: DPI, опрос, питание, кнопки, макросы, бэкап
+  bindings.py    кодирование назначений кнопок (7 байт)
+  macros.py      кодирование макросов
+  lighting.py    эффекты подсветки по зонам
+  mock.py        эмулятор Naga Pro для тестов
+  cli.py         консоль
+  gui/           интерфейс на PySide6
+tests/           python -m unittest discover tests
+```
+
+## Источники по протоколу
+
+- OpenRazer — формат пакета и команды DPI, опроса, питания и подсветки для Naga Pro: https://github.com/openrazer/openrazer
+- razerqdhid (MIT) — описание команд кнопок, макросов и профилей: https://github.com/geezmolycos/razerqdhid
+
+Лицензия: MIT.

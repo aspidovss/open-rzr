@@ -1,0 +1,353 @@
+# open-rzr: access to Razer mouse HID control for the logged-in user;
+# input lines: read the mouse's own key events (F13-F24 triggers of macro program actions)
+# Razer Orochi 2011
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0013", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0013", TAG+="uaccess"
+# Razer Naga
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0015", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0015", TAG+="uaccess"
+# Razer DeathAdder 3.5G
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0016", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0016", TAG+="uaccess"
+# Razer Naga Epic
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="001f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="001f", TAG+="uaccess"
+# Razer Abyssus 1800
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0020", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0020", TAG+="uaccess"
+# Razer Mamba 2012 (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0024", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0024", TAG+="uaccess"
+# Razer Mamba 2012 (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0025", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0025", TAG+="uaccess"
+# Razer DeathAdder 3.5G Black
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0029", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0029", TAG+="uaccess"
+# Razer Naga 2012
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="002e", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="002e", TAG+="uaccess"
+# Razer Imperator 2012
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="002f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="002f", TAG+="uaccess"
+# Razer Ouroboros
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0032", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0032", TAG+="uaccess"
+# Razer Taipan
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0034", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0034", TAG+="uaccess"
+# Razer Naga Hex (Red)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0036", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0036", TAG+="uaccess"
+# Razer DeathAdder 2013
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0037", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0037", TAG+="uaccess"
+# Razer DeathAdder 1800
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0038", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0038", TAG+="uaccess"
+# Razer Orochi 2013
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0039", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0039", TAG+="uaccess"
+# Razer Naga Epic Chroma
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="003e", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="003e", TAG+="uaccess"
+# Razer Naga Epic Chroma Dock
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="003f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="003f", TAG+="uaccess"
+# Razer Naga 2014
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0040", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0040", TAG+="uaccess"
+# Razer Naga Hex
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0041", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0041", TAG+="uaccess"
+# Razer Abyssus 2014
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0042", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0042", TAG+="uaccess"
+# Razer DeathAdder Chroma
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0043", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0043", TAG+="uaccess"
+# Razer Mamba (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0044", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0044", TAG+="uaccess"
+# Razer Mamba (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0045", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0045", TAG+="uaccess"
+# Razer Mamba Tournament Edition
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0046", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0046", TAG+="uaccess"
+# Razer Orochi (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0048", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0048", TAG+="uaccess"
+# Razer Diamondback Chroma
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="004c", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="004c", TAG+="uaccess"
+# Razer DeathAdder 2000
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="004f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="004f", TAG+="uaccess"
+# Razer Naga Hex V2
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0050", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0050", TAG+="uaccess"
+# Razer Naga Chroma
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0053", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0053", TAG+="uaccess"
+# Razer DeathAdder 3500
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0054", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0054", TAG+="uaccess"
+# Razer Lancehead (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0059", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0059", TAG+="uaccess"
+# Razer Lancehead (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005a", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005a", TAG+="uaccess"
+# Razer Abyssus V2
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005b", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005b", TAG+="uaccess"
+# Razer DeathAdder Elite
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005c", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005c", TAG+="uaccess"
+# Razer Abyssus 2000
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005e", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="005e", TAG+="uaccess"
+# Razer Lancehead Tournament Edition
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0060", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0060", TAG+="uaccess"
+# Razer Atheris (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0062", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0062", TAG+="uaccess"
+# Razer Basilisk
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0064", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0064", TAG+="uaccess"
+# Razer Basilisk Essential
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0065", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0065", TAG+="uaccess"
+# Razer Naga Trinity
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0067", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0067", TAG+="uaccess"
+# Razer Abyssus Elite (D.Va Edition)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006a", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006a", TAG+="uaccess"
+# Razer Abyssus Essential
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006b", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006b", TAG+="uaccess"
+# Razer Mamba Elite
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006c", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006c", TAG+="uaccess"
+# Razer DeathAdder Essential
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006e", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006e", TAG+="uaccess"
+# Razer Lancehead Wireless (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="006f", TAG+="uaccess"
+# Razer Lancehead Wireless (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0070", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0070", TAG+="uaccess"
+# Razer DeathAdder Essential (White Edition)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0071", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0071", TAG+="uaccess"
+# Razer Mamba Wireless (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0072", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0072", TAG+="uaccess"
+# Razer Mamba Wireless (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0073", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0073", TAG+="uaccess"
+# Razer Pro Click (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0077", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0077", TAG+="uaccess"
+# Razer Viper
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0078", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0078", TAG+="uaccess"
+# Razer Viper Ultimate (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007a", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007a", TAG+="uaccess"
+# Razer Viper Ultimate (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007b", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007b", TAG+="uaccess"
+# Razer DeathAdder V2 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007c", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007c", TAG+="uaccess"
+# Razer DeathAdder V2 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007d", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="007d", TAG+="uaccess"
+# Razer Pro Click (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0080", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0080", TAG+="uaccess"
+# Razer Basilisk X HyperSpeed
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0083", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0083", TAG+="uaccess"
+# Razer DeathAdder V2
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0084", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0084", TAG+="uaccess"
+# Razer Basilisk V2
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0085", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0085", TAG+="uaccess"
+# Razer Basilisk Ultimate (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0086", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0086", TAG+="uaccess"
+# Razer Basilisk Ultimate (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0088", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0088", TAG+="uaccess"
+# Razer Viper Mini
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008a", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008a", TAG+="uaccess"
+# Razer DeathAdder V2 Mini
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008c", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008c", TAG+="uaccess"
+# Razer Naga Left-Handed Edition 2020
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008d", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008d", TAG+="uaccess"
+# Razer Naga Pro (wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="008f", TAG+="uaccess"
+# Razer Naga Pro (HyperSpeed receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0090", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0090", TAG+="uaccess"
+# Razer Viper 8KHz
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0091", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0091", TAG+="uaccess"
+# Razer Orochi V2 (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0094", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0094", TAG+="uaccess"
+# Razer Orochi V2 (Bluetooth)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0095", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0095", TAG+="uaccess"
+# Razer Naga X
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0096", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0096", TAG+="uaccess"
+# Razer DeathAdder Essential (2021)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0098", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0098", TAG+="uaccess"
+# Razer Basilisk V3
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0099", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0099", TAG+="uaccess"
+# Razer Pro Click Mini (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009a", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009a", TAG+="uaccess"
+# Razer DeathAdder V2 X HyperSpeed
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009c", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009c", TAG+="uaccess"
+# Razer Viper Mini Signature Edition (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009e", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009e", TAG+="uaccess"
+# Razer Viper Mini Signature Edition (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009f", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="009f", TAG+="uaccess"
+# Razer DeathAdder V2 Lite
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a1", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a1", TAG+="uaccess"
+# Razer Cobra
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a3", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a3", TAG+="uaccess"
+# Razer Viper V2 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a5", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a5", TAG+="uaccess"
+# Razer Viper V2 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a6", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a6", TAG+="uaccess"
+# Razer Naga V2 Pro (wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a7", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a7", TAG+="uaccess"
+# Razer Naga V2 Pro (HyperSpeed receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a8", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00a8", TAG+="uaccess"
+# Razer Basilisk V3 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00aa", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00aa", TAG+="uaccess"
+# Razer Basilisk V3 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00ab", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00ab", TAG+="uaccess"
+# Razer Cobra Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00af", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00af", TAG+="uaccess"
+# Razer Cobra Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b0", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b0", TAG+="uaccess"
+# Razer DeathAdder V3
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b2", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b2", TAG+="uaccess"
+# Razer HyperPolling Wireless Dongle
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b3", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b3", TAG+="uaccess"
+# Razer Naga V2 HyperSpeed (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b4", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b4", TAG+="uaccess"
+# Razer DeathAdder V3 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b6", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b6", TAG+="uaccess"
+# Razer DeathAdder V3 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b7", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b7", TAG+="uaccess"
+# Razer Viper V3 HyperSpeed
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b8", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b8", TAG+="uaccess"
+# Razer Basilisk V3 X HyperSpeed
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b9", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00b9", TAG+="uaccess"
+# Razer DeathAdder V4 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00be", TAG+="uaccess"
+# Razer DeathAdder V4 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00bf", TAG+="uaccess"
+# Razer Viper V3 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c0", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c0", TAG+="uaccess"
+# Razer Viper V3 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c1", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c1", TAG+="uaccess"
+# Razer DeathAdder V3 Pro (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c2", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c2", TAG+="uaccess"
+# Razer DeathAdder V3 Pro (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c3", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c3", TAG+="uaccess"
+# Razer DeathAdder V3 HyperSpeed (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c4", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c4", TAG+="uaccess"
+# Razer DeathAdder V3 HyperSpeed (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c5", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c5", TAG+="uaccess"
+# Razer Pro Click V2 Vertical Edition (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c7", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c7", TAG+="uaccess"
+# Razer Pro Click V2 Vertical Edition (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c8", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00c8", TAG+="uaccess"
+# Razer Basilisk V3 35K
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00cb", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00cb", TAG+="uaccess"
+# Razer Basilisk V3 Pro 35K (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00cc", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00cc", TAG+="uaccess"
+# Razer Basilisk V3 Pro 35K (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00cd", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00cd", TAG+="uaccess"
+# Razer Pro Click V2 (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d0", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d0", TAG+="uaccess"
+# Razer Pro Click V2 (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d1", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d1", TAG+="uaccess"
+# Razer Basilisk Mobile (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d3", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d3", TAG+="uaccess"
+# Razer Basilisk Mobile (Receiver)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d4", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d4", TAG+="uaccess"
+# Razer Basilisk V3 Pro 35K Phantom Green Edition (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d6", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d6", TAG+="uaccess"
+# Razer Basilisk V3 Pro 35K Phantom Green Edition (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d7", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00d7", TAG+="uaccess"
+# Razer Cobra HyperSpeed (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00da", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00da", TAG+="uaccess"
+# Razer Cobra HyperSpeed (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00db", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00db", TAG+="uaccess"
+# Razer Viper V3 Pro SE (Wired)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00de", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00de", TAG+="uaccess"
+# Razer Viper V3 Pro SE (Wireless)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00df", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="00df", TAG+="uaccess"

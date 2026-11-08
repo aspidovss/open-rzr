@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>open-rzr</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <main>
+    <!-- row 1: device and program tabs -->
+    <header id="top">
+      <div class="brand">open-rzr</div>
+      <nav id="tabs">
+        <button data-tab="device" class="active"><svg class="ti" viewBox="0 0 16 16"><path d="M8 1.5c2.6 0 4.5 2.2 4.5 5.4v2.6c0 3-2 5-4.5 5s-4.5-2-4.5-5V6.9C3.5 3.7 5.4 1.5 8 1.5Zm0 1.2v3.6" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span id="tab-device-name" data-i18n="tab.mouse"></span></button>
+        <button data-tab="macros"><span class="ti m">M</span><span data-i18n="tab.macros"></span></button>
+        <button data-tab="settings"><svg class="ti" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" stroke-width="1.3"/></svg><span data-i18n="tab.settings"></span></button>
+        <button data-tab="diag"><span class="ti">⌘</span><span data-i18n="tab.diag"></span></button>
+      </nav>
+      <span class="grow"></span>
+      <span id="busy" class="busy hidden"></span>
+      <select id="dev-select"><option data-i18n="top.searching"></option></select>
+      <button id="btn-rescan" class="icon" data-i18n-title="top.rescan">⟳</button>
+      <span id="batt-chip" class="chip"></span>
+    </header>
+
+    <!-- row 2: profile + device sub-tabs -->
+    <div id="devbar">
+      <div class="prof needs-mouse" id="prof-box">
+        <svg class="pi" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 8.5 10 6l4.5 2.5L10 11Zm0 3L10 14l4.5-2.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        <select id="prof-select"></select>
+        <button id="btn-prof-menu" class="icon" data-i18n-title="prof.menu">•••</button>
+        <button id="btn-onboard" class="icon" data-i18n-title="onb.title"><svg viewBox="0 0 16 16" width="15" height="15"><path d="M4 2h6l3 3v9H4Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 2v3M8 2v3M10 2v3" stroke="currentColor" stroke-width="1.1"/></svg></button>
+        <span id="auto-chip" class="chip hidden"></span>
+      </div>
+      <nav id="nav">
+        <button data-page="buttons" data-i18n="sub.customize" data-classic="nav.buttons" data-ic="▦"></button>
+        <button data-page="perf" data-i18n="sub.performance" data-classic="nav.perf" data-ic="◎"></button>
+        <button data-page="lighting" data-i18n="sub.lighting" data-classic="nav.lighting" data-ic="✦"></button>
+        <button data-page="power" data-i18n="sub.power" data-classic="nav.power" data-ic="⚡"></button>
+        <button data-page="device" data-i18n="sub.info" data-classic="nav.device" data-ic="◉"></button>
+      </nav>
+      <span class="devbar-r"></span>
+    </div>
+
+    <section id="pages">
+      <div id="no-mouse" class="notice hidden" data-i18n="common.connect_first"></div>
+      <div class="notices">
+        <div id="exp-notice" class="notice hidden">
+            <div id="exp-notice-text"></div>
+            <div class="row" style="margin-top:8px"><span class="grow"></span>
+              <button id="btn-exp-hide" data-i18n="exp.hide"></button>
+              <button class="primary" id="btn-exp-backup" data-i18n="exp.backup"></button></div>
+          </div>
+        <div id="or-notice" class="notice hidden">
+            <div id="or-notice-text" data-i18n="or.daemon_conflict"></div>
+            <div class="row" style="margin-top:8px"><span class="grow"></span>
+              <button data-goto="settings" data-i18n="or.open_settings"></button>
+              <button class="primary" id="btn-or-stop2" data-i18n="or.stop"></button></div>
+          </div>
+          <div id="rz-notice" class="notice warn hidden">
+            <div id="rz-notice-text"></div>
+            <div class="row" style="margin-top:8px"><span class="grow"></span>
+              <button data-goto="settings" data-i18n="or.open_settings"></button>
+              <button class="primary" id="btn-rz-stop2" data-i18n="rz.stop"></button></div>
+          </div>
+      </div>
+
+      <!-- ============================================================ device -->
+      <div class="page" id="page-device">
+        <h1 data-i18n="device.title"></h1>
+        <p class="sub" data-i18n="device.sub"></p>
+        <div id="dev-notice" class="notice hidden"></div>
+        <div class="card needs-mouse">
+          <div class="card-title" data-i18n="device.card"></div>
+          <dl class="kv" id="dev-kv"></dl>
+        </div>
+        <div class="card needs-mouse" id="batt-card">
+          <div class="card-title" data-i18n="device.battery"></div>
+          <div class="row">
+            <div class="progress grow"><div id="batt-bar"></div><span id="batt-text">—</span></div>
+            <span id="batt-charge" class="muted"></span>
+            <button id="btn-batt" data-i18n="device.refresh"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ performance -->
+      <div class="page hidden" id="page-perf">
+        <h1 data-i18n="perf.title"></h1>
+        <p class="sub" data-i18n="perf.sub"></p>
+        <div class="card needs-mouse" id="stages-card" data-feat="dpi_stages">
+          <div class="card-title row"><span data-i18n="perf.stages"></span><span class="grow"></span>
+            <span class="muted small" id="dpi-target"></span></div>
+          <table class="stages">
+            <thead><tr><th></th><th data-i18n="perf.on"></th><th data-i18n="perf.active"></th><th>DPI X</th><th>DPI Y</th><th data-i18n="perf.link"></th></tr></thead>
+            <tbody id="stages-body"></tbody>
+          </table>
+          <div class="row"><span id="cur-dpi" class="muted"></span><span class="grow"></span>
+            <button class="primary" id="btn-dpi" data-i18n="perf.apply"></button></div>
+        </div>
+        <div class="card needs-mouse" id="poll-card" data-feat="polling">
+          <div class="card-title" data-i18n="perf.polling"></div>
+          <div class="row"><label data-i18n="perf.polling_label"></label>
+            <select id="poll"><option value="125">125 Hz</option><option value="500">500 Hz</option><option value="1000">1000 Hz</option></select>
+            <span class="grow"></span><button id="btn-poll" data-i18n="common.apply"></button></div>
+        </div>
+      </div>
+
+      <!-- ============================================================ buttons -->
+      <div class="page hidden" id="page-buttons">
+        <div class="cust needs-mouse" id="cust-figure">
+          <div id="fig"></div>
+          <div id="sidepad" class="hidden"><div id="sidepad-title"></div><div class="pad" id="pad"></div></div>
+        </div>
+        <div class="cust needs-mouse hidden" id="cust-list">
+          <div class="row wrap toolbar">
+            <label class="check"><input type="checkbox" id="btn-all"> <span data-i18n="btn.disabled_too"></span></label>
+            <span class="grow"></span>
+            <button id="btn-backup" data-i18n="btn.backup"></button>
+            <button id="btn-restore" data-i18n="btn.restore"></button>
+          </div>
+          <div class="tablewrap">
+            <table class="list" id="btn-table">
+              <thead><tr><th data-i18n="btn.col_id"></th><th data-i18n="btn.col_button"></th><th data-i18n="btn.col_action"></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="custbar needs-mouse">
+          <button id="btn-view" class="icon sq" data-i18n-title="btn.view_toggle"><svg viewBox="0 0 16 16" width="14" height="14"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 3v10" stroke="currentColor" stroke-width="1.3"/></svg></button>
+          <div class="seg" id="layer-seg">
+            <button data-hs="0" class="on" data-i18n="btn.layer_std"></button>
+            <button data-hs="1" data-i18n="btn.layer_hs"></button>
+          </div>
+          <button id="btn-layer" class="icon hidden" data-i18n-title="hs.menu">•••</button>
+          <span class="help" data-i18n-title="btn.hs_help">?</span>
+          <span id="hs-chip" class="hs-chip hidden"></span>
+          <span class="grow"></span>
+          <div class="plates hidden" id="plate-box">
+            <button data-view="top" class="plate"><svg viewBox="0 0 40 40"><path d="M20 5c7 0 10 6 10 15s-3 15-10 15S10 29 10 20 13 5 20 5Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M20 6v9" stroke="currentColor" stroke-width="1.4"/><rect x="18.6" y="9" width="2.8" height="6" rx="1.4" fill="currentColor"/></svg></button>
+            <button data-view="2" class="plate"><svg viewBox="0 0 40 40"><path d="M16 4c8-2 14 3 15 10 1 8 0 15-4 20-3 3-9 3-11-1-3-6-5-14-4-21 0-4 1-7 4-8Z" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="18" y="16" width="6" height="4" rx="1" fill="currentColor"/><rect x="18" y="21.5" width="6" height="4" rx="1" fill="currentColor"/></svg><i class="ok">✓</i></button>
+            <button data-view="6" class="plate"><svg viewBox="0 0 40 40"><path d="M16 4c8-2 14 3 15 10 1 8 0 15-4 20-3 3-9 3-11-1-3-6-5-14-4-21 0-4 1-7 4-8Z" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="16.0" y="14.0" width="4.2" height="4.2" rx="1" fill="currentColor"/><rect x="21.2" y="14.0" width="4.2" height="4.2" rx="1" fill="currentColor"/><rect x="16.0" y="19.2" width="4.2" height="4.2" rx="1" fill="currentColor"/><rect x="21.2" y="19.2" width="4.2" height="4.2" rx="1" fill="currentColor"/><rect x="16.0" y="24.4" width="4.2" height="4.2" rx="1" fill="currentColor"/><rect x="21.2" y="24.4" width="4.2" height="4.2" rx="1" fill="currentColor"/></svg><i class="ok">✓</i></button>
+            <button data-view="12" class="plate"><svg viewBox="0 0 40 40"><path d="M16 4c8-2 14 3 15 10 1 8 0 15-4 20-3 3-9 3-11-1-3-6-5-14-4-21 0-4 1-7 4-8Z" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="15" y="13" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="19" y="13" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="23" y="13" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="15" y="17" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="19" y="17" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="23" y="17" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="15" y="21" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="19" y="21" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="23" y="21" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="15" y="25" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="19" y="25" width="3.2" height="3.2" rx=".6" fill="currentColor"/><rect x="23" y="25" width="3.2" height="3.2" rx=".6" fill="currentColor"/></svg><i class="ok">✓</i></button>
+          </div>
+          <span class="grow"></span>
+          <button id="btn-detect" data-i18n="btn.detect"></button>
+        </div>
+        <div id="hs-notice" class="notice hs hidden"><span id="hs-notice-text"></span><span class="grow"></span><span id="hs-notice-btns"></span></div>
+      </div>
+
+      <!-- ============================================================ macros -->
+      <div class="page hidden" id="page-macros">
+        <div class="mac">
+          <!-- library -->
+          <div class="mac-lib">
+            <div class="mac-head"><span data-i18n="mac.library"></span><span class="grow"></span>
+              <button class="icon" id="btn-mnew" data-i18n-title="mac.new">＋</button>
+              <button class="icon" id="btn-mlibmenu" data-i18n-title="mac.lib_menu">•••</button></div>
+            <ul class="pick" id="lib-list"></ul>
+            <details id="mouse-box">
+              <summary data-i18n="mac.on_mouse"></summary>
+              <ul class="pick" id="mouse-macros"></ul>
+              <div class="row"><button id="btn-mrefresh" data-i18n="mac.refresh"></button><button id="btn-mdel" data-i18n="mac.erase"></button></div>
+              <div id="flash" class="muted small"></div>
+            </details>
+          </div>
+          <!-- what can be added -->
+          <div class="mac-add">
+            <div class="mac-head"><span data-i18n="mac.add_title"></span></div>
+            <div class="add-group" data-i18n="mac.grp_hw"></div>
+            <button class="add" data-add="delay"><i>⏱</i><span data-i18n="mac.a_delay"></span></button>
+            <button class="add" data-add="key"><i>⌨</i><span data-i18n="mac.a_key"></span></button>
+            <button class="add" data-add="mouse"><i>🖱</i><span data-i18n="mac.a_mouse"></span></button>
+            <button class="add" data-add="wheel"><i>↕</i><span data-i18n="mac.a_wheel"></span></button>
+            <button class="add" data-add="media"><i>♫</i><span data-i18n="mac.a_media"></span></button>
+            <button class="add" data-add="text"><i>T</i><span data-i18n="mac.a_text"></span></button>
+            <button class="add" data-add="macro"><i>▤</i><span data-i18n="mac.a_macro"></span></button>
+            <button class="add" data-add="loop"><i>↻</i><span data-i18n="mac.a_loop"></span></button>
+            <div class="add-group sw" data-i18n="mac.grp_sw"></div>
+            <button class="add sw" data-add="launch"><i>▶</i><span data-i18n="mac.a_launch"></span></button>
+            <button class="add sw" data-add="web"><i>🌐</i><span data-i18n="mac.a_web"></span></button>
+            <button class="add sw" data-add="run"><i>&gt;_</i><span data-i18n="mac.a_run"></span></button>
+            <button class="add sw" data-add="type"><i>✎</i><span data-i18n="mac.a_type"></span></button>
+            <button class="add sw" data-add="sdelay"><i>⏱</i><span data-i18n="mac.a_sdelay"></span></button>
+            <div class="muted small add-note" data-i18n="mac.sw_note"></div>
+          </div>
+          <!-- editor -->
+          <div class="mac-ed">
+            <div class="mac-title">
+              <input id="m-name" class="grow" data-i18n-ph="mac.name_ph">
+              <span id="m-dirty" class="dirty hidden" data-i18n-title="mac.unsaved">●</span>
+              <label>ID</label><input id="m-id" type="number" min="1" max="65535" value="1" class="num">
+            </div>
+            <div class="mac-tools">
+              <span class="split-btn"><button id="btn-rec"></button><button id="btn-rec-opt" class="caret" data-i18n-title="mac.rec_opts">▾</button></span>
+              <span class="mac-time" id="m-time"></span>
+              <span class="grow"></span>
+              <button class="icon" id="btn-undo" data-i18n-title="mac.undo">↶</button>
+              <button class="icon" id="btn-redo" data-i18n-title="mac.redo">↷</button>
+              <span class="sep"></span>
+              <button class="icon" id="btn-up" data-i18n-title="mac.up">↑</button>
+              <button class="icon" id="btn-down" data-i18n-title="mac.down">↓</button>
+              <button class="icon" id="btn-sdup" data-i18n-title="mac.dup">⧉</button>
+              <button class="icon" id="btn-sdel" data-i18n-title="mac.del_step">🗑</button>
+            </div>
+            <div id="rec-pad" class="hidden" tabindex="0"></div>
+            <div class="steps-head"><label class="check"><input type="checkbox" id="m-all"> <span data-i18n="mac.sel_all"></span></label>
+              <span class="grow"></span><span class="badge hw" data-i18n="mac.badge_hw"></span></div>
+            <ol id="steps" class="steps"></ol>
+            <div id="sw-box" class="hidden">
+              <div class="steps-head"><span class="sw-title" data-i18n="mac.grp_sw"></span><span class="grow"></span>
+                <span class="badge sw" id="sw-badge"></span>
+                <button id="btn-swtest" data-i18n="mac.sw_test"></button></div>
+              <ol id="sw-steps" class="steps sw"></ol>
+              <div id="sw-status" class="muted small"></div>
+            </div>
+            <div id="steps-info" class="muted small"></div>
+            <div class="row"><span class="grow"></span>
+              <button id="btn-msave" data-i18n="mac.save_lib"></button>
+              <button class="primary" id="btn-mwrite" data-i18n="mac.write"></button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ lighting -->
+      <div class="page hidden" id="page-lighting">
+        <h1 data-i18n="light.title"></h1>
+        <p class="sub" data-i18n="light.sub"></p>
+        <div id="poly-notice" class="notice hidden">
+          <div data-i18n="poly.notice"></div>
+          <div class="row" style="margin-top:8px"><span class="grow"></span>
+            <button id="btn-poly-here" data-i18n="poly.here"></button>
+            <button class="primary btn-poly-open" data-i18n="poly.open"></button></div>
+        </div>
+        <div class="row toolbar needs-mouse light-ctl">
+          <label class="check"><input type="checkbox" id="light-sync"> <span data-i18n="light.sync"></span></label>
+          <span class="grow"></span>
+          <button id="btn-light-off" data-i18n="light.off_all"></button>
+          <button class="primary" id="btn-light-all" data-i18n="light.apply_all"></button>
+        </div>
+        <div id="zones" class="needs-mouse light-ctl"></div>
+      </div>
+
+      <!-- ============================================================ power -->
+      <div class="page hidden" id="page-power">
+        <h1 data-i18n="power.title"></h1>
+        <p class="sub" data-i18n="power.sub"></p>
+        <div class="card needs-mouse" data-feat="idle">
+          <div class="card-title" data-i18n="power.sleep"></div>
+          <div class="row"><label data-i18n="power.sleep_label"></label>
+            <input type="range" id="idle" min="1" max="15" value="5" class="grow"><span id="idle-v" class="val"></span></div>
+        </div>
+        <div class="card needs-mouse" data-feat="low_battery">
+          <div class="card-title" data-i18n="power.low"></div>
+          <div class="row"><label data-i18n="power.low_label"></label>
+            <input type="range" id="lowbatt" min="5" max="100" step="5" value="10" class="grow"><span id="lowbatt-v" class="val"></span></div>
+        </div>
+        <div class="row needs-mouse"><span class="grow"></span><button class="primary" id="btn-power" data-i18n="common.apply"></button></div>
+      </div>
+
+      <!-- ============================================================ diagnostics -->
+      <div class="page hidden" id="page-diag">
+        <h1 data-i18n="diag.title"></h1>
+        <p class="sub" data-i18n="diag.sub"></p>
+        <div class="row wrap toolbar">
+          <label data-i18n="diag.show"></label>
+          <select id="log-filter"><option value="" data-i18n="diag.all"></option><option value=" ui ">ui</option><option value=" device ">device</option><option value=" usb ">usb</option><option value=" app ">app</option><option value="ERROR" data-i18n="diag.errors"></option></select>
+          <label class="check"><input type="checkbox" id="log-follow" checked> <span data-i18n="diag.follow"></span></label>
+          <span class="grow"></span>
+          <button id="btn-logdir" data-i18n="diag.logdir"></button>
+          <button class="primary" id="btn-report" data-i18n="diag.report"></button>
+        </div>
+        <pre id="log"></pre>
+        <div class="row">
+          <input id="raw-cmd" class="mono" data-i18n-ph="diag.cmd_ph" style="width:190px">
+          <input id="raw-args" class="mono grow" data-i18n-ph="diag.args_ph">
+          <label>size</label><input id="raw-size" type="number" class="num" min="0" max="80" value="0">
+          <button id="btn-raw" data-i18n="diag.send"></button>
+        </div>
+        <div id="log-path" class="muted small"></div>
+      </div>
+
+      <!-- ============================================================ settings -->
+      <div class="page hidden" id="page-settings">
+        <h1 data-i18n="set.title"></h1>
+        <p class="sub" data-i18n="set.sub"></p>
+        <div class="card">
+          <div class="card-title" data-i18n="set.language"></div>
+          <div class="row"><label data-i18n="set.language_label"></label><select id="set-lang"></select></div>
+        </div>
+        <div class="card">
+          <div class="card-title" data-i18n="set.style"></div>
+          <div class="styles">
+            <label class="style-opt"><input type="radio" name="ui-style" value="synapse">
+              <span class="sprev synapse"><i class="t"></i><i class="t2"></i><i class="b"></i></span>
+              <span><b data-i18n="set.style_synapse"></b><br><span class="muted small" data-i18n="set.style_synapse_text"></span></span></label>
+            <label class="style-opt"><input type="radio" name="ui-style" value="classic">
+              <span class="sprev classic"><i class="s"></i><i class="t"></i><i class="b"></i></span>
+              <span><b data-i18n="set.style_classic"></b><br><span class="muted small" data-i18n="set.style_classic_text"></span></span></label>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title" data-i18n="set.startup"></div>
+          <label class="check"><input type="checkbox" id="set-autostart"> <span data-i18n="set.autostart"></span></label>
+          <label class="check indent"><input type="checkbox" id="set-minimized"> <span data-i18n="set.minimized"></span></label>
+        </div>
+        <div class="card">
+          <div class="card-title" data-i18n="set.window"></div>
+          <label class="check"><input type="checkbox" id="set-close-tray"> <span data-i18n="set.close_to_tray"></span></label>
+          <div class="muted small" data-i18n="set.tray_note"></div>
+        </div>
+        <div class="card">
+          <div class="card-title" data-i18n="set.log"></div>
+          <div class="row"><label data-i18n="set.log_level"></label>
+            <select id="log-level"><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option></select></div>
+        </div>
+        <div class="card hidden" id="rz-card">
+          <div class="card-title" data-i18n="rz.title"></div>
+          <div class="muted small" data-i18n="rz.about"></div>
+          <dl class="kv" id="rz-kv"></dl>
+          <label class="check"><input type="checkbox" id="rz-autostart"> <span data-i18n="rz.autostart"></span></label>
+          <div class="muted small" data-i18n="rz.uac"></div>
+          <div class="row"><span class="grow"></span>
+            <button id="btn-rz-refresh" data-i18n="or.refresh"></button>
+            <button id="btn-rz-start" data-i18n="rz.start"></button>
+            <button class="primary" id="btn-rz-stop" data-i18n="rz.stop"></button></div>
+        </div>
+        <div class="card hidden" id="or-card">
+          <div class="card-title" data-i18n="or.title"></div>
+          <div class="muted small" data-i18n="or.about"></div>
+          <div class="row"><label data-i18n="or.mode"></label>
+            <select id="or-mode">
+              <option value="auto" data-i18n="or.mode_auto"></option>
+              <option value="on" data-i18n="or.mode_on"></option>
+              <option value="off" data-i18n="or.mode_off"></option>
+            </select></div>
+          <dl class="kv" id="or-kv"></dl>
+          <div class="poly-box">
+            <div class="row"><b>Polychromatic</b><span class="muted" id="poly-state"></span><span class="grow"></span>
+              <button class="btn-poly-open" data-i18n="poly.open"></button></div>
+            <div class="muted small" data-i18n="poly.about"></div>
+          </div>
+          <div class="row"><span class="grow"></span><button id="btn-or-refresh" data-i18n="or.refresh"></button>
+            <button id="btn-or-stop" data-i18n="or.stop"></button></div>
+        </div>
+        <div class="card" id="about-card">
+          <div class="card-title" data-i18n="about.title"></div>
+          <div id="about-version"></div>
+          <div class="row"><span id="about-db" class="muted grow"></span><button id="btn-devices" data-i18n="about.devices"></button></div>
+          <div class="card-title small" data-i18n="about.sources"></div>
+          <ul class="credits">
+            <li><b>OpenRazer</b> — <span data-i18n="about.or_role"></span> <span class="muted mono small">openrazer.github.io</span>
+              <ul>
+                <li data-i18n="about.or_1"></li>
+                <li data-i18n="about.or_2"></li>
+                <li data-i18n="about.or_3"></li>
+                <li data-i18n="about.or_4"></li>
+                <li data-i18n="about.or_5"></li>
+              </ul></li>
+            <li><b>razerqdhid</b> — <span data-i18n="about.qdhid"></span> <span class="muted mono small">github.com/geezmolycos/razerqdhid</span></li>
+            <li><b>naga-synapse</b> — <span data-i18n="about.naga_synapse"></span> <span class="muted mono small">github.com/Renari/naga-synapse</span></li>
+          </ul>
+          <div class="thanks">
+            <div class="card-title" data-i18n="about.thanks_title"></div>
+            <div data-i18n="about.thanks"></div>
+          </div>
+          <div class="muted small" data-i18n="about.license"></div>
+        </div>
+        <div class="row"><span class="grow"></span><button class="danger" id="btn-quit" data-i18n="set.quit"></button></div>
+      </div>
+    </section>
+    <footer id="status"></footer>
+  </main>
+</div>
+
+<div id="modal" class="hidden"><div class="dialog" id="dialog"></div></div>
+
+<script src="i18n/en.js"></script>
+<script src="i18n/ru.js"></script>
+<script src="i18n.js"></script>
+<script src="keys.js"></script>
+<script src="api.js"></script>
+<script src="mouse-art.js"></script>
+<script src="naga-side.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

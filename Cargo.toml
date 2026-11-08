@@ -1,0 +1,17 @@
+[workspace]
+members = ["core", "app", "tools/openrazer-import"]
+default-members = ["core", "app"]
+resolver = "2"
+
+[workspace.package]
+version = "0.5.13"
+edition = "2021"
+license = "MIT"
+authors = ["Sergei Aspidov"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"
