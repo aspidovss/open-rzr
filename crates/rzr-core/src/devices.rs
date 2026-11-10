@@ -15,7 +15,7 @@ pub mod openrazer_db;
 
 pub use naga_pro::{button_on_plate, plate_from_code, plate_of, side_plate_name, COMMON_BUTTONS, PLATES};
 
-pub const RAZER_VID: u16 = 0x1532;
+pub const RAZER_VID: u16 = rzr_hal::RAZER_VID;
 
 /// Where a device description comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

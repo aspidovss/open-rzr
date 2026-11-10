@@ -34,7 +34,7 @@ function errText(e) {
   const m = /^\[(\w+)\]\s*([\s\S]*)$/.exec(String(e));
   if (!m) return String(e);
   const [, code, msg] = m;
-  if (["disconnected", "not_found", "no_access", "conflict", "unsupported", "bluetooth"].includes(code)) return t("err." + code);
+  if (["disconnected", "not_found", "no_access", "conflict", "unsupported", "bluetooth", "asleep", "timeout"].includes(code)) return t("err." + code);
   if (["failed", "invalid", "io"].includes(code)) return `${t("err." + code)}: ${macroErr(msg)}`;
   return msg;
 }
@@ -800,7 +800,14 @@ function shortName(n) {
   return n.replace(/^Razer\s+/i, "").replace(/\s*\(.*\)\s*$/, "").toUpperCase();
 }
 
+function showAsleep() {
+  $("#batt-charge").textContent = t("device.asleep");
+  $("#batt-chip").textContent = "💤 " + ($("#batt-text").textContent || "");
+  $("#batt-chip").title = t("err.asleep");
+}
+
 function showBattery([lvl, ch]) {
+  $("#batt-chip").title = "";
   $("#batt-bar").style.width = lvl + "%";
   $("#batt-text").textContent = lvl + "%";
   $("#batt-charge").textContent = ch ? t("device.charging") : "";
@@ -812,6 +819,8 @@ async function refreshBattery() {
   if (!S.conn || !S.conn.has_battery || S.busy) return;
   try { showBattery(await api.call("battery")); } catch (e) {
     if (errCode(e) === "disconnected") { status(t("err.disconnected"), true); setDisconnected(); }
+    // a sleeping wireless mouse is normal: show it next to the battery, no error in the status bar
+    else if (errCode(e) === "asleep") showAsleep();
   }
 }
 

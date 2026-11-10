@@ -5,7 +5,7 @@ use std::ffi::CString;
 use hidapi::{HidApi, HidDevice};
 
 use super::{DeviceInfo, Transport};
-use crate::devices::RAZER_VID;
+use crate::RAZER_VID;
 use crate::protocol::{Error, Result, REPORT_LEN};
 
 const FEATURE_LEN: usize = REPORT_LEN + 1;

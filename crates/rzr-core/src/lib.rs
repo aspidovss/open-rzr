@@ -1,14 +1,16 @@
 //! open-rzr core: Razer mouse protocol and device access, std-only.
 //! No network, no telemetry, no accounts.
 //!
-//! Layout: `protocol` (report format from the `rzr-protocol` crate + the error type) → `transport` (HID / OpenRazer bridge / emulator) →
+//! Layout: `protocol` (report format, `rzr-protocol`) → `transport` (`rzr-hal`) (HID / OpenRazer bridge / emulator) →
 //! `device` (a connected mouse) + `features/*` (what it can do) + `devices/*` (model modules).
 //! Codecs: `bindings` (button actions), `macros`, `lighting`, `hidkeys`.
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[macro_use]
-pub mod logs;
+extern crate rzr_hal;
+
+pub use rzr_hal::{log_debug, log_error, log_info, log_warn, logs, transport};
 pub mod bindings;
 pub mod compat;
 pub mod device;
@@ -25,7 +27,6 @@ pub mod profile;
 pub mod program_actions;
 pub mod protocol;
 pub mod synapse;
-pub mod transport;
 pub mod udev;
 pub mod wireless;
 

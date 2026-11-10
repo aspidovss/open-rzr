@@ -67,6 +67,11 @@ fn with_mouse<T>(st: &AppState, what: &str, f: impl FnOnce(&mut RazerMouse) -> o
     match f(m) {
         Ok(v) => Ok(v),
         Err(e) => {
+            if e.code() == "asleep" {
+                // a sleeping wireless mouse is expected; the channel already logged it once
+                log_debug!("ui", "{what}: mouse asleep");
+                return Err(err(&e));
+            }
             log_error!("ui", "{what}: {e}");
             if e.code() == "io" {
                 // the OS handle broke: the mouse was unplugged or went to sleep

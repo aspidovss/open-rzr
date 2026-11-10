@@ -9,8 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 VER=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 
-echo "== tests (protocol, core)"
-cargo test -p rzr-protocol -p rzr-core --release
+echo "== tests (protocol, hal, core)"
+cargo test -p rzr-protocol -p rzr-hal -p rzr-core --release
 echo "== build $VER"
 cargo build --release -p rzr-cli -p open-rzr
 ./target/release/open-rzr-cli version

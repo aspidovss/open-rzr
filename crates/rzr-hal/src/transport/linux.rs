@@ -6,7 +6,7 @@ use std::os::raw::{c_int, c_ulong};
 use std::path::Path;
 
 use super::{DeviceInfo, Transport};
-use crate::devices::RAZER_VID;
+use crate::RAZER_VID;
 use crate::protocol::{Error, Result, REPORT_LEN};
 
 const FEATURE_LEN: usize = REPORT_LEN + 1; // + report id 0
@@ -113,6 +113,7 @@ pub fn enumerate(all: bool) -> Vec<DeviceInfo> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     #[test]
     fn ioctl_numbers() {

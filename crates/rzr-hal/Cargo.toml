@@ -1,0 +1,22 @@
+[package]
+name = "rzr-hal"
+description = "open-rzr hardware layer: hidraw / hidapi / emulator / OpenRazer bridge, request channel with deadlines and sleep detection, local log"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# serde for DeviceInfo (the Tauri app, backup files)
+default = ["json"]
+json = ["dep:serde"]
+
+[dependencies]
+rzr-protocol = { path = "../rzr-protocol" }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+hidapi = "2"

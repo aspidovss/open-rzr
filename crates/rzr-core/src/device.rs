@@ -88,7 +88,7 @@ impl RazerMouse {
         RazerMouse {
             info: info.clone(),
             spec,
-            ch: Channel::new(t, spec.transaction_id, if bridged { 0 } else { spec.reply_delay_ms }),
+            ch: Channel::new(t, spec.transaction_id, if bridged { 0 } else { spec.reply_delay_ms }).with_wireless(spec.wireless),
             features,
             zones,
             openrazer,
