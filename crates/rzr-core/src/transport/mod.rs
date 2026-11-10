@@ -33,6 +33,9 @@ pub struct DeviceInfo {
     pub backend: String,
     pub usage_page: u16,
     pub usage: u16,
+    /// connected over Bluetooth (LE): the mouse has another product id and other HID collections
+    #[cfg_attr(feature = "json", serde(default))]
+    pub bluetooth: bool,
 }
 
 impl DeviceInfo {
@@ -57,16 +60,27 @@ impl DeviceInfo {
             backend: "mock".into(),
             usage_page: 0,
             usage: 0,
+            bluetooth: false,
         }
     }
+}
+
+/// Every HID endpoint of every vendor (Diagnostics → All HID devices).
+pub fn enumerate_all() -> Vec<DeviceInfo> {
+    #[cfg(target_os = "linux")]
+    return linux::enumerate(true);
+    #[cfg(windows)]
+    return windows::enumerate(true).unwrap_or_default();
+    #[cfg(not(any(target_os = "linux", windows)))]
+    Vec::new()
 }
 
 /// All Razer HID endpoints the OS reports (unfiltered).
 pub fn enumerate(include_mock: bool) -> Vec<DeviceInfo> {
     #[cfg(target_os = "linux")]
-    let mut v = linux::enumerate();
+    let mut v = linux::enumerate(false);
     #[cfg(windows)]
-    let mut v = match windows::enumerate() {
+    let mut v = match windows::enumerate(false) {
         Ok(d) => d,
         Err(e) => {
             log_warn!("app", "hidapi: {e}");
@@ -107,7 +121,7 @@ impl Channel {
     pub fn request(&mut self, cmd: u16, args: &[u8], data_size: Option<u8>) -> Result<Report> {
         let req = Report::new(cmd, args, data_size, self.tid)?;
         let t0 = Instant::now();
-        log_debug!("usb", ">> {}", req.hexdump());
+        log_debug!("usb", ">> {}", req);
         self.t.send_feature(&req.to_bytes())?;
         let mut delay = self.delay;
         let mut rep = None;
@@ -136,7 +150,7 @@ impl Channel {
         log_debug!(
             "usb",
             "<< {} [{:.0} ms{}{}]",
-            rep.hexdump(),
+            rep,
             ms,
             if busy > 0 { format!(", BUSY×{busy}") } else { String::new() },
             if foreign > 0 { format!(", foreign reply×{foreign}") } else { String::new() }

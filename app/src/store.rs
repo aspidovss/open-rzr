@@ -72,6 +72,12 @@ pub struct Store {
     pub autoswitch: AutoSwitch,
     /// window style: "" / "synapse" = like the original configurator, "classic" = sidebar
     pub ui_style: String,
+    /// changes of a profile that sits in an on-board slot go straight into that slot (else: "Write to mouse")
+    #[serde(default)]
+    pub autowrite: bool,
+    /// serial -> fingerprint of what was last written into slots 1..5 (index 0 = slot 1)
+    #[serde(default)]
+    pub written: HashMap<String, Vec<Option<String>>>,
 }
 
 impl Store {

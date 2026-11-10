@@ -204,6 +204,8 @@ KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=
 # Razer Viper 8KHz
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0091", TAG+="uaccess"
 KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0091", TAG+="uaccess"
+# Razer Naga Pro (Bluetooth)
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0005:1532:0092.*", TAG+="uaccess"
 # Razer Orochi V2 (Receiver)
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0094", TAG+="uaccess"
 KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0094", TAG+="uaccess"

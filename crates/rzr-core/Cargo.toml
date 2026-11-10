@@ -1,22 +1,15 @@
 [package]
-name = "openrzr"
-description = "Razer mouse protocol, device access and CLI (no telemetry, no accounts)"
+name = "rzr-core"
+description = "open-rzr library: device access, device database, features, macros, profiles (no telemetry, no accounts)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+# the library keeps its name: `use openrzr::…`
 [lib]
+name = "openrzr"
 path = "src/lib.rs"
-
-[[bin]]
-name = "open-rzr-cli"
-path = "src/bin/cli.rs"
-
-# razer-cli compatible command line
-[[bin]]
-name = "orzr-cli"
-path = "src/bin/orzr.rs"
 
 [features]
 # `json` adds serde (backup/restore files, the Tauri app). Without it the crate is std-only.
@@ -24,6 +17,7 @@ default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
+rzr-protocol = { path = "../rzr-protocol" }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 

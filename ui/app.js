@@ -34,7 +34,7 @@ function errText(e) {
   const m = /^\[(\w+)\]\s*([\s\S]*)$/.exec(String(e));
   if (!m) return String(e);
   const [, code, msg] = m;
-  if (["disconnected", "not_found", "no_access", "conflict", "unsupported"].includes(code)) return t("err." + code);
+  if (["disconnected", "not_found", "no_access", "conflict", "unsupported", "bluetooth"].includes(code)) return t("err." + code);
   if (["failed", "invalid", "io"].includes(code)) return `${t("err." + code)}: ${macroErr(msg)}`;
   return msg;
 }
@@ -94,6 +94,15 @@ const comboName = (mods, key) => {
 };
 
 /** Human-readable binding, in the UI language (mirrors Action::describe in Rust). */
+/** Service macros (id ≥ 0xF000) that open-rzr writes for media-key turbo: "consumer, pause, release, pause". */
+const SERVICE_MACRO = 0xf000;
+function serviceTurbo(id) {
+  if (id < SERVICE_MACRO || !S.onMouse) return null;
+  const m = S.onMouse.find((x) => x.id === id);
+  if (!m || m.steps.length !== 4 || m.steps[0].kind !== "consumer") return null;
+  return { code: m.steps[0].value, interval: m.steps[1].value + m.steps[3].value };
+}
+
 function describe(a) {
   const mouse = (b) => tl("mouse", b, hex2(b));
   switch (a.kind) {
@@ -106,6 +115,8 @@ function describe(a) {
     case "consumer": return t("desc.consumer", { c: tl("consumer", a.code, "0x" + a.code.toString(16)) });
     case "system": return t("desc.system", { s: tl("system_op", a.code, String(a.code)) });
     case "macro": {
+      const svc = serviceTurbo(a.macro_id);
+      if (svc) return t("desc.media_turbo", { c: tl("consumer", svc.code, "0x" + svc.code.toString(16)), ms: svc.interval });
       const mode = t("macro_mode." + a.macro_mode);
       return a.macro_mode === "once" ? t("desc.macro_times", { id: a.macro_id, mode, n: a.repeat }) : t("desc.macro", { id: a.macro_id, mode });
     }
@@ -179,20 +190,193 @@ function promptBox(title, label, value = "") {
 const DEVICE_PAGES = ["buttons", "perf", "lighting", "power", "device"];
 function showPage(name) {
   closePopover();
+  S.page = name;
+  rememberUi();
   const dev = DEVICE_PAGES.includes(name);
   if (dev) S.devPage = name;
   $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.page === name));
   $$("#tabs button").forEach((b) => b.classList.toggle("active", dev ? b.dataset.tab === "device" : b.dataset.tab === name));
   $("#devbar").classList.toggle("hidden", !dev);
   $$(".page").forEach((p) => p.classList.toggle("hidden", p.id !== "page-" + name));
-  const needs = !["diag", "settings"].includes(name);
+  const needs = !["diag", "settings", "help"].includes(name);
   $("#no-mouse").classList.toggle("hidden", !needs || !!S.conn);
   ulog("tab: " + name, "DEBUG");
   if (name === "diag") pollLog();
   if (name === "settings") loadSettings();
+  if (name === "help") quiet(openHelp());
   if (name === "buttons") drawCustomize();
 }
 const currentPage = () => ($$(".page").find((p) => !p.classList.contains("hidden")) || { id: "" }).id.replace("page-", "");
+
+// ------------------------------------------------------------------ help (ui/docs/<lang>/*.md — the same files are the guide on GitHub)
+const HELP_PAGES = ["getting-started", "profiles", "customize", "macros", "performance", "devices", "windows", "linux",
+  "command-line", "troubleshooting", "building", "credits"];
+const HELP = { lang: null, docs: {}, page: "getting-started", anchor: "" };
+
+async function loadDocs() {
+  const lang = i18n.lang === "ru" ? "ru" : "en";
+  if (HELP.lang === lang) return;
+  const get = async (l, id) => { try { const r = await fetch(`docs/${l}/${id}.md`); return r.ok ? await r.text() : null; } catch (_) { return null; } };
+  const docs = {};
+  for (const id of HELP_PAGES) {
+    const text = (await get(lang, id)) || (await get("en", id));
+    if (text) docs[id] = { text, title: (/^#\s+(.+)$/m.exec(text) || [, id])[1], lang: (await get(lang, id)) ? lang : "en" };
+  }
+  HELP.docs = docs; HELP.lang = lang;
+}
+
+/** Open the guide at a page ("macros") or a section ("macros#program-actions"). */
+async function openHelp(topic) {
+  if (topic) { const [p, a] = topic.split("#"); HELP.page = p; HELP.anchor = a || ""; }
+  if (currentPage() !== "help") { showPage("help"); return; }
+  await loadDocs();
+  drawHelpList();
+  drawHelpPage();
+}
+
+function drawHelpList() {
+  const q = ($("#help-search").value || "").trim().toLowerCase();
+  const ul = $("#help-list");
+  ul.innerHTML = "";
+  for (const id of HELP_PAGES) {
+    const d = HELP.docs[id];
+    if (!d) continue;
+    const words = q.split(/\s+/).filter(Boolean);
+    if (words.length && !words.every((w) => d.text.toLowerCase().includes(w))) continue;
+    const li = el("li", { class: id === HELP.page ? "sel" : "", text: d.title });
+    li.addEventListener("click", () => { HELP.page = id; HELP.anchor = ""; drawHelpList(); drawHelpPage(); });
+    ul.append(li);
+  }
+  if (!ul.childElementCount) ul.append(el("li", { class: "muted", text: t("help.nothing") }));
+}
+
+function drawHelpPage() {
+  const body = $("#help-body");
+  const d = HELP.docs[HELP.page];
+  if (!d) { body.textContent = t("help.missing"); return; }
+  body.innerHTML = renderMarkdown(d.text, `docs/${d.lang}/`);
+  // search words are highlighted in the text
+  const words = ($("#help-search").value || "").trim().split(/\s+/).filter((w) => w.length > 1);
+  if (words.length) markWords(body, words);
+  const target = HELP.anchor ? body.querySelector(`[id="${CSS.escape(HELP.anchor)}"]`) : null;
+  if (target) { target.scrollIntoView({ block: "start" }); target.classList.add("flash"); } else body.scrollTop = 0;
+  if (!target) body.parentElement.scrollTop = 0;
+}
+
+function markWords(root, words) {
+  const re = new RegExp("(" + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "gi");
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walk.nextNode()) if (re.test(walk.currentNode.nodeValue)) nodes.push(walk.currentNode);
+  for (const n of nodes) {
+    const span = document.createElement("span");
+    span.innerHTML = escHtml(n.nodeValue).replace(re, "<mark>$1</mark>");
+    n.replaceWith(span);
+  }
+}
+
+const escHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** A small Markdown renderer for the guide: headings, paragraphs, lists, tables, code, links, images. */
+function renderMarkdown(md, base) {
+  const slug = (s) => s.toLowerCase().replace(/<[^>]+>/g, "").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
+  const inline = (s) => {
+    const codes = [];
+    s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+    s = escHtml(s)
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => `<img alt="${alt}" src="${/^https?:/.test(src) ? "" : resolveDoc(base, src)}">`)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, txt, href) => `<a href="#" data-href="${href}">${txt}</a>`)
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, "$1<i>$2</i>");
+    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${escHtml(codes[+i])}</code>`);
+  };
+  const lines = md.replace(/\r/g, "").split("\n");
+  let html = "", i = 0;
+  const para = [];
+  const flush = () => { if (para.length) { html += `<p>${inline(para.join(" "))}</p>`; para.length = 0; } };
+  while (i < lines.length) {
+    const l = lines[i];
+    let m;
+    if (/^```/.test(l)) {
+      flush();
+      const code = [];
+      for (i++; i < lines.length && !/^```/.test(lines[i]); i++) code.push(lines[i]);
+      html += `<pre><code>${escHtml(code.join("\n"))}</code></pre>`;
+      i++; continue;
+    }
+    if ((m = /^<a id="([\w-]+)"><\/a>$/.exec(l.trim()))) { flush(); html += `<a id="${m[1]}"></a>`; i++; continue; }
+    if ((m = /^(#{1,4})\s+(.+)$/.exec(l))) {
+      flush();
+      const n = m[1].length, txt = inline(m[2]);
+      html += `<h${n} id="${slug(m[2])}">${txt}</h${n}>`;
+      i++; continue;
+    }
+    if (/^\s*\|/.test(l) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      flush();
+      const cells = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()));
+      html += "<table><thead><tr>" + cells(l).map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+      for (i += 2; i < lines.length && /^\s*\|/.test(lines[i]); i++) html += "<tr>" + cells(lines[i]).map((c) => `<td>${c}</td>`).join("") + "</tr>";
+      html += "</tbody></table>";
+      continue;
+    }
+    if ((m = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(l))) {
+      flush();
+      const ordered = /\d/.test(m[2]);
+      html += ordered ? "<ol>" : "<ul>";
+      while (i < lines.length && (m = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(lines[i]))) {
+        let item = m[3];
+        // continuation lines of the same item
+        for (i++; i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*]|\d+\.)\s/.test(lines[i]); i++) item += " " + lines[i].trim();
+        html += `<li>${inline(item)}</li>`;
+      }
+      html += ordered ? "</ol>" : "</ul>";
+      continue;
+    }
+    if (/^>\s?/.test(l)) { flush(); html += `<blockquote>${inline(l.replace(/^>\s?/, ""))}</blockquote>`; i++; continue; }
+    if (!l.trim()) { flush(); i++; continue; }
+    para.push(l.trim());
+    i++;
+  }
+  flush();
+  return html;
+}
+
+function resolveDoc(base, src) {
+  const parts = (base + src).split("/");
+  const out = [];
+  for (const p of parts) { if (p === "..") out.pop(); else if (p !== ".") out.push(p); }
+  return out.join("/");
+}
+
+function bindHelp() {
+  $("#help-search").addEventListener("input", () => {
+    drawHelpList();
+    // the open page has no match: show the first page that has
+    const first = $("#help-list li:not(.muted)");
+    if (first && !$("#help-list li.sel")) { HELP.page = HELP_PAGES.find((id) => HELP.docs[id] && HELP.docs[id].title === first.textContent) || HELP.page; HELP.anchor = ""; drawHelpList(); }
+    drawHelpPage();
+  });
+  // links inside the guide: other pages open here; web addresses are copied (open-rzr has no network access)
+  $("#help-body").addEventListener("click", async (e) => {
+    const a = e.target.closest("a[data-href]");
+    if (!a) return;
+    e.preventDefault();
+    const href = a.dataset.href;
+    if (/^https?:/.test(href)) {
+      try { await navigator.clipboard.writeText(href); status(t("help.copied", { url: href })); } catch (_) { status(href); }
+      return;
+    }
+    const [file, anchor] = href.split("#");
+    HELP.page = file ? file.replace(/^.*\//, "").replace(/\.md$/, "") : HELP.page;
+    HELP.anchor = anchor || "";
+    drawHelpList(); drawHelpPage();
+  });
+  // "?" buttons anywhere in the window
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-help]");
+    if (b) { e.preventDefault(); e.stopPropagation(); quiet(openHelp(b.dataset.help)); }
+  }, true);
+}
 
 // ------------------------------------------------------------------ connection
 function setDisconnected() {
@@ -242,12 +426,30 @@ async function rescan() {
     return;
   }
   groups.forEach((g, i) => sel.append(el("option", { value: i, text: deviceName(g.pid, g.label) })));
-  await connect(0);
+  // reopened from the tray: the mouse that was chosen before
+  const i = S.devIndex > 0 && S.devIndex < groups.length ? S.devIndex : 0;
+  sel.value = i;
+  await connect(i);
+}
+
+/** Page and mouse are kept by the app while the window is closed to the tray (the page is destroyed). */
+function rememberUi() {
+  if (!S.uiRestored) return;
+  quiet(api.call("ui_state_set", { state: JSON.stringify({ page: S.page, dev: S.devIndex || 0 }) }));
+}
+
+/** Close button with “close to tray”: the window is destroyed, so unsaved work would be lost. */
+async function onCloseRequested() {
+  if (!(await leaveEditor())) { quiet(api.call("close_cancelled")); return; }
+  ulog("window closed to the tray");
+  await quiet(api.call("hide_to_tray"));
 }
 
 async function connect(i) {
   const g = S.groups[i];
   if (!g) return;
+  S.devIndex = i;
+  rememberUi();
   try {
     const c = await run("connect", { candidates: g.candidates }, (c) => t("status.connected", { name: deviceName(g.pid, c.name), fw: c.firmware }));
     c.pid = g.pid;
@@ -382,6 +584,170 @@ async function startRazer() {
   if (!(await confirmBox(t("rz.title"), t("rz.confirm_start"), t("rz.start")))) return;
   try { await run("start_razer_software", {}, t("rz.started_ok")); } catch (e) { if (errCode(e) === "no_access") status(t("rz.no_uac"), true); }
   await quiet(checkRazer());
+}
+
+// ------------------------------------------------------------------ diagnostics: HID devices, drivers
+const hex4 = (n) => n.toString(16).padStart(4, "0");
+
+/** Every HID endpoint: which ones are Razer, their usage pages, Bluetooth — for "my mouse is not found". */
+async function showHidList() {
+  const v = await run("all_hid_devices");
+  await modal((box, close) => {
+    box.classList.add("wide");
+    const only = el("input", { type: "checkbox", checked: true });
+    const table = el("table", { class: "list small" });
+    const draw = () => {
+      table.innerHTML = "";
+      table.append(el("tr", {}, ...["VID:PID", t("diag.hid_name"), t("diag.hid_if"), t("diag.hid_page"), t("diag.hid_bus")].map((h) => el("th", { text: h }))));
+      v.filter((d) => !only.checked || d.vid === 0x1532).forEach((d) => table.append(el("tr", { title: d.path },
+        el("td", { class: "mono", text: `${hex4(d.vid)}:${hex4(d.pid)}` }), el("td", { text: d.name || "—" }),
+        el("td", { text: d.interface < 0 ? "—" : String(d.interface) }),
+        el("td", { class: "mono", text: `${hex4(d.usage_page)}/${hex4(d.usage)}${d.usage_page >= 0xff00 ? " ★" : ""}` }),
+        el("td", { text: d.bluetooth ? "Bluetooth" : "USB" }))));
+      if (table.rows.length === 1) table.append(el("tr", {}, el("td", { colspan: 5, class: "muted", text: t("common.empty") })));
+    };
+    only.addEventListener("change", draw); draw();
+    box.append(el("h2", { text: t("diag.hid") }), el("div", { class: "muted small", text: t("diag.hid_note") }),
+      el("label", { class: "check" }, only, " " + t("diag.hid_razer")), el("div", { class: "scroll-box" }, table),
+      el("div", { class: "buttons" }, el("button", { class: "primary", text: t("common.ok"), onclick: () => close(null) })));
+  });
+}
+
+/** The vendor GATT service of Razer mice on Bluetooth (write 1524, notify 1525/1526). */
+const RAZER_GATT = "52401523-f97c-7f90-0e7f-6c6f4e36db1c";
+
+/** Diagnostics → Wireless: what a mouse on Bluetooth offers (HID collections, GATT) and probes. */
+async function showWireless() {
+  let r = await run("wireless_debug", { probe: "" });
+  const col = (path) => { const m = /&col(\d+)/i.exec(path || ""); return m ? "Col" + m[1] : (path || "").split(/[\\/#]/).filter(Boolean).pop(); };
+  const ids = (a) => (a && a.length ? a.map((x) => "0x" + x.toString(16).padStart(2, "0")).join(" ") : "—");
+  const asText = () => {
+    const L = [`open-rzr wireless report — address ${r.address || "?"}, battery ${r.battery ?? "?"}`];
+    r.hid.forEach((c) => L.push(`HID ${col(c.path)} page ${hex4(c.usage_page)}/${hex4(c.usage)} in ${c.input_len} out ${c.output_len} feature ${c.feature_len} ids in ${ids(c.input_ids)} out ${ids(c.output_ids)} feature ${ids(c.feature_ids)} ${c.error}${c.descriptor ? "\n  descriptor " + c.descriptor : ""}`));
+    r.probes.forEach((p) => L.push(`probe ${col(p.path)} ${p.method}: ${p.ok ? "RAZER REPLY" : "—"} ${p.detail}`));
+    if (r.gatt_error) L.push("GATT: " + r.gatt_error);
+    r.gatt.forEach((g) => { L.push(`GATT service ${g.uuid} ${g.name} (handle ${g.handle})`); g.chars.forEach((c) => L.push(`  ${c.uuid} ${c.name} [${c.props}] ${c.value}`)); });
+    r.notes.forEach((n) => L.push("note: " + n));
+    xs.forEach((x) => {
+      L.push(`GATT exchange — write [${x.request || "listen only"}]${x.error ? " error: " + x.error : ""}`);
+      x.steps.forEach((s) => L.push("  " + s));
+      x.notifications.forEach((n) => L.push(`  notify +${n.t_ms} ms ${n.uuid} (handle ${n.handle}) ${n.len} bytes: ${n.hex}`));
+      if (!x.notifications.length) L.push("  no notifications");
+    });
+    return L.join("\n");
+  };
+  const xs = []; // GATT exchanges of this dialog
+  await modal((box, close) => {
+    box.classList.add("wide");
+    const body = el("div", { class: "scroll-box wl" });
+    const draw = () => {
+      body.innerHTML = "";
+      body.append(el("div", { class: "wl-head" },
+        el("span", { text: t("wl.address", { a: r.address || "—" }) }),
+        el("span", { text: t("wl.battery", { b: r.battery != null ? r.battery + " %" : "—" }) })));
+      r.notes.forEach((n) => body.append(el("div", { class: "notice", text: n })));
+      // HID collections
+      body.append(el("h3", { text: t("wl.hid") }));
+      const th = el("table", { class: "list small" });
+      th.append(el("tr", {}, ...["", t("diag.hid_page"), t("wl.lens"), t("wl.ids"), ""].map((h) => el("th", { text: h }))));
+      r.hid.forEach((c) => th.append(el("tr", { title: c.path + (c.descriptor ? "\n" + c.descriptor : "") },
+        el("td", { class: "mono", text: col(c.path) }),
+        el("td", { class: "mono", text: `${hex4(c.usage_page)}/${hex4(c.usage)}${c.usage_page >= 0xff00 ? " ★" : ""}` }),
+        el("td", { class: "mono", text: `${c.input_len} / ${c.output_len} / ${c.feature_len}` }),
+        el("td", { class: "mono small", text: `in ${ids(c.input_ids)} · out ${ids(c.output_ids)} · feat ${ids(c.feature_ids)}` }),
+        el("td", { class: "muted small", text: c.error }))));
+      body.append(th);
+      // probes
+      if (r.probes.length) {
+        body.append(el("h3", { text: t("wl.probes") }));
+        const tp = el("table", { class: "list small" });
+        r.probes.forEach((p) => tp.append(el("tr", { class: p.ok ? "ok" : "" }, el("td", { class: "mono", text: col(p.path) }),
+          el("td", { text: p.method }), el("td", { class: "mono small", text: (p.ok ? "✓ " : "") + p.detail }))));
+        body.append(tp);
+      }
+      // GATT
+      body.append(el("h3", { text: t("wl.gatt") }));
+      if (r.gatt_error) body.append(el("div", { class: "muted small", text: r.gatt_error }));
+      r.gatt.forEach((g) => {
+        body.append(el("div", { class: "wl-svc" + (g.name === "vendor-specific" ? " vendor" : "") }, el("b", { text: g.name || "—" }), el("span", { class: "mono small muted", text: " " + g.uuid })));
+        const tg = el("table", { class: "list small" });
+        g.chars.forEach((c) => tg.append(el("tr", {}, el("td", { class: "mono small", text: c.uuid.length > 8 ? c.uuid : "0x" + c.uuid }),
+          el("td", { text: c.name || "—" }), el("td", { class: "small", text: c.props }), el("td", { class: "mono small", text: c.value }))));
+        body.append(tg);
+      });
+      // Razer GATT channel
+      if (r.gatt.some((g) => g.uuid === RAZER_GATT)) {
+        body.append(el("h3", { text: t("wl.x_title") }), el("div", { class: "muted small", text: t("wl.x_note") }));
+        const mode = el("select", {},
+          el("option", { value: "", text: t("wl.x_listen") }),
+          el("option", { value: "fw", text: t("wl.x_fw") }),
+          el("option", { value: "hex", text: t("wl.x_hex") }));
+        const hexIn = el("input", { type: "text", class: "mono", placeholder: "00 1f 00 00 00 02 00 81", spellcheck: "false" });
+        const ms = el("input", { type: "number", min: "100", max: "10000", step: "100", value: "1500", class: "num" });
+        mode.value = xMode; hexIn.value = xHex; ms.value = xMs;
+        const sync = () => { xMode = mode.value; xHex = hexIn.value; xMs = ms.value; hexIn.hidden = mode.value !== "hex"; };
+        mode.addEventListener("change", sync); hexIn.addEventListener("input", sync); ms.addEventListener("input", sync);
+        sync();
+        const send = el("button", { text: t("wl.x_send"), onclick: () => quiet(exchange(mode.value === "hex" ? hexIn.value : mode.value, Number(ms.value) || 1500)) });
+        body.append(el("div", { class: "wl-x" }, mode, hexIn, el("label", { class: "small" }, t("wl.x_ms") + " ", ms), send));
+        xs.slice().reverse().forEach((x) => {
+          const box = el("div", { class: "wl-xres" });
+          box.append(el("div", { class: "small" }, el("b", { text: x.request ? t("wl.x_wrote", { n: x.request.split(" ").length }) : t("wl.x_listened") }),
+            el("span", { class: "mono small muted", text: " " + (x.request || "") })));
+          if (x.error) box.append(el("div", { class: "notice", text: x.error }));
+          x.steps.forEach((st) => box.append(el("div", { class: "mono small muted", text: st })));
+          if (x.notifications.length) {
+            const tn = el("table", { class: "list small" });
+            x.notifications.forEach((n) => tn.append(el("tr", { class: "ok" }, el("td", { class: "mono small", text: "+" + n.t_ms + " ms" }),
+              el("td", { class: "mono small", text: n.uuid.slice(0, 8) }), el("td", { class: "mono small", text: n.len + " B" }), el("td", { class: "mono small", text: n.hex }))));
+            box.append(tn);
+          } else if (!x.error) box.append(el("div", { class: "small", text: t("wl.x_none") }));
+          body.append(box);
+        });
+      }
+    };
+    let xMode = "fw", xHex = "", xMs = "1500";
+    const exchange = async (request, listenMs) => {
+      status(t("wl.x_busy"));
+      const x = await run("wireless_gatt", { request, listenMs }, (y) => y.error || t(y.notifications.length ? "wl.x_got" : "wl.x_none", { n: y.notifications.length }));
+      xs.push(x);
+      const top = body.scrollTop;
+      draw();
+      body.scrollTop = top;
+    };
+    draw();
+    const probe = async (scope) => {
+      if (scope === "all" && !(await confirmBox(t("wl.title"), t("wl.all_warn"), t("wl.probe_all")))) return;
+      status(t("wl.probing"));
+      r = await run("wireless_debug", { probe: scope }, (x) => t(x.probes.some((p) => p.ok) ? "wl.found" : "wl.none"));
+      draw();
+    };
+    box.append(el("h2", { text: t("wl.title") }), el("div", { class: "muted small", text: t("wl.note") }), body,
+      el("div", { class: "buttons" },
+        el("button", { text: t("wl.copy"), onclick: async () => { try { await navigator.clipboard.writeText(asText()); status(t("wl.copied")); } catch (_) { status(t("wl.copy_fail"), true); } } }),
+        el("button", { text: t("wl.probe_all"), onclick: () => quiet(probe("all")) }),
+        el("button", { text: t("wl.probe"), onclick: () => quiet(probe("vendor")) }),
+        el("button", { class: "primary", text: t("common.ok"), onclick: () => close(null) })));
+  });
+}
+
+/** Drivers of Razer devices: the standard HID driver is all open-rzr needs. */
+async function showDrivers() {
+  const v = await run("razer_drivers");
+  const razer = v.filter((d) => d.razer);
+  await modal((box, close) => {
+    box.classList.add("wide");
+    const table = el("table", { class: "list small" });
+    table.append(el("tr", {}, ...[t("diag.drv_device"), t("diag.drv_provider"), t("diag.drv_version"), t("diag.drv_service")].map((h) => el("th", { text: h }))));
+    v.forEach((d) => table.append(el("tr", { title: d.instance + (d.inf ? "\n" + d.inf : ""), class: d.razer ? "warn" : "" },
+      el("td", { text: d.device || d.instance }), el("td", { text: d.provider || "—" }), el("td", { text: d.version || "—" }),
+      el("td", { text: [d.service, d.filters].filter(Boolean).join(" + ") || "—" }))));
+    if (!v.length) table.append(el("tr", {}, el("td", { colspan: 4, class: "muted", text: t("common.empty") })));
+    box.append(el("h2", { text: t("diag.drivers") }),
+      el("div", { class: razer.length ? "notice" : "muted small", text: razer.length ? t("diag.drv_razer", { n: razer.length }) : t("diag.drv_ok") }),
+      el("div", { class: "scroll-box" }, table),
+      el("div", { class: "buttons" }, el("button", { class: "primary", text: t("common.ok"), onclick: () => close(null) })));
+  });
 }
 
 // ------------------------------------------------------------------ device page
@@ -530,6 +896,7 @@ async function applyDpi() {
   const p = curProfile();
   if (p) {
     showCurDpi(await run("profile_set_dpi", { id: p.id, stages, active }, t("perf.saved")));
+    markChanged();
     S.profile.dpi_stages = { active, stages };
   } else {
     showCurDpi(await run("set_dpi_stages", { stages, active, profile: 1 }, t("perf.saved")));
@@ -555,6 +922,7 @@ async function loadProfiles() {
   if (cp) status(t("prof.selected", { name: cp.name }));
   if (!S.profiles.current && S.profiles.list.length) S.profiles.current = S.profiles.list[0].id;
   drawProfileSelect();
+  $("#set-autowrite").checked = !!S.profiles.autowrite;
   if (S.profiles.current) await openProfile(S.profiles.current, false);
   drawAutoChip();
 }
@@ -567,6 +935,67 @@ function drawProfileSelect() {
     sel.append(el("option", { value: p.id, text: p.name + slots }));
   }
   sel.value = S.profiles.current;
+  drawWriteState();
+}
+
+/** "Write to mouse": changes live in the temporary layer until written into the profile's slot. */
+function drawWriteState() {
+  const b = $("#btn-write");
+  const p = S.profiles && S.profiles.list.find((x) => x.id === S.profiles.current);
+  if (!p) { b.classList.add("hidden"); return; }
+  b.classList.remove("hidden", "ok", "dirty");
+  const slots = p.slots.join(", ");
+  if (!p.slots.length) {
+    $("#write-state").textContent = "";
+    $("#write-text").textContent = t("wr.write") + " ▾";
+    b.title = t("wr.choose_slot");
+  } else if (p.written) {
+    b.classList.add("ok");
+    $("#write-state").textContent = "✓ ";
+    $("#write-text").textContent = t("wr.in_slot", { n: slots });
+    b.title = S.profiles.autowrite ? t("wr.auto_hint") : t("wr.written_hint", { n: slots });
+  } else {
+    b.classList.add("dirty");
+    $("#write-state").textContent = "● ";
+    $("#write-text").textContent = t("wr.write");
+    b.title = t("wr.dirty_hint", { n: slots });
+  }
+}
+
+/** Mark the selected profile as changed (its slot no longer matches) until the list is reloaded. */
+function markChanged() {
+  const p = S.profiles && S.profiles.list.find((x) => x.id === S.profiles.current);
+  if (p && p.slots.length && !S.profiles.autowrite) { p.written = false; drawWriteState(); }
+}
+
+async function writeToMouse(anchor) {
+  if (!needMouse()) return;
+  const p = S.profiles.list.find((x) => x.id === S.profiles.current);
+  if (!p) return;
+  if (p.slots.length) {
+    if (p.written) return status(t("wr.already", { n: p.slots.join(", ") }));
+    status(t("wr.writing"));
+    S.profiles = await run("profile_write", { id: p.id }, t("wr.done", { name: p.name, n: p.slots.join(", ") }));
+    drawProfileSelect();
+    return;
+  }
+  // in no slot yet: choose one (what is in each slot now is shown)
+  popover(anchor, (box, close) => {
+    box.append(el("div", { class: "hd" }, el("span", { class: "grow", text: t("wr.choose_slot") })));
+    for (let slot = 1; slot <= 5; slot++) {
+      const cur = S.profiles.slots[slot - 1];
+      const curName = cur ? (S.profiles.list.find((x) => x.id === cur) || {}).name || cur : t("onb.empty");
+      const ok = S.conn.profiles.includes(slot);
+      box.append(el("button", { class: "mi slot-pick", disabled: !ok, onclick: async () => {
+        close();
+        if (cur && !(await confirmBox(t("wr.title"), t("wr.replace", { n: slot, old: curName, name: p.name }), t("wr.write")))) return;
+        status(t("onb.writing", { n: slot }));
+        S.profiles = await run("slot_assign", { slot, id: p.id }, t("onb.written", { n: slot, name: p.name }));
+        drawProfileSelect();
+      } }, el("span", { class: "sd", style: `background:${SLOT_COLORS[slot - 1]}` }), el("b", { text: String(slot) }),
+        el("span", { class: "muted", text: curName })));
+    }
+  }, "onb");
 }
 
 /** Load a profile into the window; `select` = make it the selected one (written to the mouse if needed). */
@@ -594,7 +1023,8 @@ function sameAction(a, b) {
 }
 
 function slotText(p) {
-  return p && p.slots.length ? t("prof.in_slots", { list: p.slots.join(", ") }) : t("prof.temporary");
+  if (!p || !p.slots.length) return t("prof.temporary");
+  return S.profiles && S.profiles.autowrite ? t("prof.in_slots", { list: p.slots.join(", ") }) : t("wr.temp_then", { list: p.slots.join(", ") });
 }
 
 function profileMenu(anchor) {
@@ -703,6 +1133,7 @@ async function reloadProfile() {
   const p = curProfile();
   if (!(await confirmBox(t("prof.reload"), t("prof.reload_text", { where: slotText(p) }), t("prof.reload")))) return;
   S.profile = await run("profile_reload", { id: p.id }, t("prof.reloaded"));
+  S.profiles = await run("profiles"); drawProfileSelect();
   drawCustomize(); showProfileDpi();
 }
 
@@ -710,6 +1141,7 @@ async function resetProfile() {
   const p = curProfile();
   if (!(await confirmBox(t("prof.reset"), t("prof.reset_text", { name: p.name, where: slotText(p) }), t("prof.reset")))) return;
   S.profile = await run("profile_reset", { id: p.id }, t("prof.reset_done"));
+  markChanged();
   drawCustomize(); showProfileDpi();
 }
 
@@ -1141,6 +1573,7 @@ async function layerOp(op) {
   const n = await run("profile_layer", { id: p.id, op }, (n) => t(op === "copy" ? "hs.copied" : "hs.cleared", { n }));
   void n;
   S.profile = await run("profile_get", { id: p.id });
+  markChanged();
   drawCustomize();
 }
 
@@ -1209,6 +1642,7 @@ async function setButton(id, action, hs = !!S.hs) {
   const pair = S.profile.buttons[k] || (S.profile.buttons[k] = { normal: back, hypershift: null });
   if (hs) pair.hypershift = back; else pair.normal = back;
   // Rust keeps the modifier's own Hypershift binding in step (see profile_set_button)
+  markChanged();
   if (!hs && back.kind === "hypershift") pair.hypershift = back;
   else if (!hs && wasMod) pair.hypershift = { ...defaultAction(), kind: "disabled" };
   status(t("btn.written", { name: buttonName(id), desc: describe(back), where: p.slots.length ? t("btn.where_profile", { n: p.slots.join(", ") }) : t("btn.where_temp") }));
@@ -1219,13 +1653,22 @@ async function editButton(id) {
   if (!needMouse()) return;
   if (S.hs && isHsMod(id)) return status(t("hs.locked", { b: buttonName(id) }), true);
   ulog(`binding editor ${hex2(id)}`, "DEBUG");
-  const act = await bindingDialog({ id, action: bindingOf(id) || defaultAction() });
+  let act = await bindingDialog({ id, action: bindingOf(id) || defaultAction() });
   if (act === "default") return resetDefault(id);
+  if (act && act.turboMedia) {
+    const mid = await run("turbo_media", { code: act.code, interval: act.interval });
+    act = { ...defaultAction(), kind: "macro", macro_id: mid, macro_mode: "hold" };
+    await quiet(refreshMacros()); // the service macro is now in the mouse
+  }
   if (act) await setButton(id, act);
 }
 
 function bindingDialog(b) {
   const T = S.tables, a = { ...defaultAction(), ...b.action };
+  // a media key with turbo is stored as a service macro: show it as what it is
+  const svc = a.kind === "macro" ? serviceTurbo(a.macro_id) : null;
+  if (svc) Object.assign(a, { kind: "consumer", code: svc.code, interval: svc.interval, svcTurbo: true });
+  const turboOn = ["keyboard_turbo", "mouse_turbo"].includes(a.kind) || !!a.svcTurbo || (a.kind === "macro" && a.macro_mode === "hold");
   return modal((box, close) => {
     const kindSel = el("select");
     // the Hypershift layer cannot hold Hypershift itself
@@ -1256,13 +1699,16 @@ function bindingDialog(b) {
     f.keyPick = el("select");
     fillSelect(f.keyPick, [["", t("bind.key_list")], ...S.tables.keys.map(([c, n]) => [c, n])], "");
     f.keyPick.addEventListener("change", () => { if (f.keyPick.value) { key = +f.keyPick.value; showCombo(); } });
-    f.turboK = el("input", { type: "checkbox", checked: a.kind === "keyboard_turbo" });
-    f.ivK = el("input", { type: "number", class: "num", min: 10, max: 5000, value: a.interval });
+    // Turbo / repeat: one switch for every action that can repeat while the button is held
+    f.turbo = el("input", { type: "checkbox" });
+    f.turbo.checked = turboOn;
+    f.iv = el("input", { type: "number", class: "num", min: 10, max: 5000, value: turboOn && a.interval ? a.interval : 50 });
+    const ivRow = el("span", { class: "turbo-iv" }, f.iv, el("span", { class: "muted", text: " " + t("mac.ms") }));
+    const turboHint = el("span", { class: "muted small turbo-hint" });
     // mouse
     f.mbtn = el("select"); fillSelect(f.mbtn, T.mouse_fn.map(([c, n]) => [c, tl("mouse", c, n)]), a.button);
-    f.mmode = el("select"); fillSelect(f.mmode, [["mouse", t("bind.mode_click")], ["double_click", t("bind.mode_double")], ["mouse_turbo", t("bind.mode_turbo")]],
-      ["mouse", "double_click", "mouse_turbo"].includes(a.kind) ? a.kind : "mouse");
-    f.ivM = el("input", { type: "number", class: "num", min: 10, max: 5000, value: a.interval });
+    f.mmode = el("select"); fillSelect(f.mmode, [["mouse", t("bind.mode_click")], ["double_click", t("bind.mode_double")]],
+      a.kind === "double_click" ? "double_click" : "mouse");
     // macro
     const macroItems = macroChoices();
     if (a.kind === "macro" && !macroItems.some(([id]) => id === a.macro_id)) macroItems.push([a.macro_id, "#" + a.macro_id]);
@@ -1282,8 +1728,8 @@ function bindingDialog(b) {
 
     const pages = {
       default: note("bind.default_text"),
-      keyboard: [[t("bind.combo"), cap], [t("bind.key_other"), f.keyPick], [t("bind.turbo"), f.turboK], [t("bind.interval"), f.ivK]],
-      mouse: [[t("bind.button"), f.mbtn], [t("bind.mode"), f.mmode], [t("bind.turbo_interval"), f.ivM]],
+      keyboard: [[t("bind.combo"), cap], [t("bind.key_other"), f.keyPick]],
+      mouse: [[t("bind.button"), f.mbtn], [t("bind.mode"), f.mmode]],
       macro: [[t("bind.macro"), f.mid], [t("bind.run"), f.mm], [t("bind.repeat"), f.rep]],
       dpi: [[t("bind.action"), f.dop], [t("bind.stage"), f.dstage], [t("bind.sniper"), f.daim]],
       profile: [[t("bind.action"), f.pop], [t("bind.profile"), f.pn]],
@@ -1292,25 +1738,48 @@ function bindingDialog(b) {
       raw: [[t("bind.raw"), f.raw]],
       hypershift: note("bind.hs_text"), scroll_mode: note("bind.scroll_text"), disabled: note("bind.off_text"),
     };
-    const draw = () => { form.innerHTML = ""; for (const [l, w] of pages[kindSel.value] || []) form.append(el("label", { text: l }), w); };
+    const TURBO = ["keyboard", "mouse", "macro", "consumer"];
+    const turboUi = () => {
+      const k = kindSel.value, on = f.turbo.checked;
+      ivRow.classList.toggle("hidden", !on || k === "macro");
+      f.mmode.disabled = k === "mouse" && on;
+      f.mm.disabled = k === "macro" && on;
+      if (k === "macro" && on) f.mm.value = "hold";
+      turboHint.textContent = !on ? "" : k === "macro" ? t("bind.turbo_macro") : k === "consumer" ? t("bind.turbo_media") : t("bind.turbo_hw");
+    };
+    f.turbo.addEventListener("change", turboUi);
+    const draw = () => {
+      form.innerHTML = "";
+      for (const [l, w] of pages[kindSel.value] || []) form.append(el("label", { text: l }), w);
+      if (TURBO.includes(kindSel.value)) {
+        form.append(el("label", { text: t("bind.turbo_title") }),
+          el("div", { class: "turbo-row" }, el("label", { class: "check" }, f.turbo, " " + t("bind.turbo_label")), ivRow));
+        form.append(el("span"), turboHint);
+      }
+      turboUi();
+    };
     kindSel.addEventListener("change", draw);
     draw();
 
     const err = el("div", { class: "muted" });
+    const iv = () => Math.max(10, Math.min(5000, Math.round(+f.iv.value || 50)));
     const result = () => {
       const k = kindSel.value, r = defaultAction();
       switch (k) {
         case "default": return "default";
         case "keyboard":
           if (!key && !mods) throw t("bind.need_key");
-          return { ...r, kind: f.turboK.checked ? "keyboard_turbo" : "keyboard", modifiers: mods, key, interval: +f.ivK.value };
-        case "mouse": return { ...r, kind: f.mmode.value, button: +f.mbtn.value, interval: +f.ivM.value };
+          return { ...r, kind: f.turbo.checked ? "keyboard_turbo" : "keyboard", modifiers: mods, key, interval: iv() };
+        case "mouse": return { ...r, kind: f.turbo.checked ? "mouse_turbo" : f.mmode.value, button: +f.mbtn.value, interval: iv() };
         case "macro":
           if (!f.mid.value) throw t("bind.need_macro");
-          return { ...r, kind: "macro", macro_id: +f.mid.value, macro_mode: f.mm.value, repeat: +f.rep.value };
+          return { ...r, kind: "macro", macro_id: +f.mid.value, macro_mode: f.turbo.checked ? "hold" : f.mm.value, repeat: +f.rep.value };
         case "dpi": return { ...r, kind: "dpi", code: +f.dop.value, stage: +f.dstage.value, dpi_x: +f.daim.value, dpi_y: +f.daim.value };
         case "profile": return { ...r, kind: "profile", code: +f.pop.value, profile: +f.pn.value };
-        case "consumer": return { ...r, kind: "consumer", code: +f.cons.value };
+        case "consumer":
+          // no turbo for media keys in the mouse: a service macro does it (see turbo_media)
+          if (f.turbo.checked) return { turboMedia: true, code: +f.cons.value, interval: iv() };
+          return { ...r, kind: "consumer", code: +f.cons.value };
         case "system": return { ...r, kind: "system", code: +f.sys.value };
         case "raw": {
           const bytes = f.raw.value.trim().split(/\s+/).filter(Boolean).map((x) => parseInt(x, 16));
@@ -1402,7 +1871,7 @@ const soft = (kind, text = "", value = 0) => ({ kind, value, text, on: true });
 function macroChoices() {
   const names = {};
   S.lib.forEach((m) => { names[m.id] = m.name; });
-  return [...new Set(S.onMouse.map((m) => m.id))].sort((a, b) => a - b).map((id) => [id, `#${id} ${names[id] || ""}`]);
+  return [...new Set(S.onMouse.map((m) => m.id))].filter((id) => id < SERVICE_MACRO).sort((a, b) => a - b).map((id) => [id, `#${id} ${names[id] || ""}`]);
 }
 
 async function refreshMacros() {
@@ -2416,6 +2885,7 @@ async function setLanguage(lang, save = true) {
   i18n.set(lang);
   if (save) await quiet(api.call("set_language", { language: lang }));
   relabel();
+  if (currentPage() === "help") quiet(openHelp());
 }
 
 /** First run: use the system language, then ask once whether to keep it. */
@@ -2455,11 +2925,13 @@ function bind() {
   $("#btn-detect").addEventListener("click", detectButton);
   $("#prof-select").addEventListener("change", (e) => { closePopover(); openProfile(e.target.value); });
   $("#btn-prof-menu").addEventListener("click", (e) => { if (S.profiles) profileMenu(e.currentTarget); });
+  $("#btn-write").addEventListener("click", (e) => { if (S.profiles) quiet(writeToMouse(e.currentTarget)); });
   $("#btn-onboard").addEventListener("click", (e) => { if (S.profiles) onboardMenu(e.currentTarget); });
   $$("#tabs button").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.tab === "device" ? (S.devPage || "buttons") : b.dataset.tab)));
   $("#btn-backup").addEventListener("click", doBackup);
   $("#btn-restore").addEventListener("click", doRestore);
   bindMacroPage();
+  bindHelp();
   $("#btn-light-all").addEventListener("click", applyAllZones);
   $("#btn-light-off").addEventListener("click", lightsOff);
   $("#idle").addEventListener("input", powerLabels);
@@ -2473,6 +2945,14 @@ function bind() {
   $("#set-lang").addEventListener("change", () => setLanguage($("#set-lang").value));
   $("#set-autostart").addEventListener("change", () => { $("#set-minimized").disabled = !$("#set-autostart").checked; saveAutostart(); });
   $("#set-minimized").addEventListener("change", saveAutostart);
+  $("#btn-hidlist").addEventListener("click", () => quiet(showHidList()));
+  $("#btn-drivers").addEventListener("click", () => quiet(showDrivers()));
+  $("#btn-wireless").addEventListener("click", () => quiet(showWireless()));
+  $("#set-autowrite").addEventListener("change", async (e) => {
+    if (!S.profiles) { e.target.checked = false; return status(t("wr.need_mouse"), true); }
+    S.profiles = await run("set_autowrite", { on: e.target.checked }, t("set.saved"));
+    drawProfileSelect();
+  });
   $("#set-close-tray").addEventListener("change", () => run("set_close_to_tray", { enabled: $("#set-close-tray").checked }, t("set.saved")));
   $("#log-level").addEventListener("change", () => run("set_log_level", { level: $("#log-level").value }, t("set.saved")));
   $("#btn-quit").addEventListener("click", () => api.call("quit_app"));
@@ -2511,7 +2991,12 @@ async function init() {
   ulog("window opened");
   api.on("device-change", onDeviceChange);
   api.on("profile-switched", onProfileSwitched);
-  showPage("buttons");
+  api.on("close-requested", () => quiet(onCloseRequested()));
+  let mem = {};
+  try { mem = JSON.parse((await quiet(api.call("ui_state_get"))) || "{}"); } catch (_) { mem = {}; }
+  S.devIndex = mem.dev || 0;
+  S.uiRestored = true;
+  showPage(mem.page && $("#page-" + mem.page) ? mem.page : "buttons");
   await quiet(rescan());
   if (!S.conn) await quiet(checkRazer()); // Synapse holding the mouse is a common reason it does not answer
   setInterval(refreshBattery, 60000);

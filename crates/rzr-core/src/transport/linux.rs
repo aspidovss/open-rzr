@@ -61,7 +61,8 @@ impl Transport for Hidraw {
     }
 }
 
-pub fn enumerate() -> Vec<DeviceInfo> {
+/// Razer endpoints, or (`all`) every hidraw node.
+pub fn enumerate(all: bool) -> Vec<DeviceInfo> {
     let mut out = Vec::new();
     let Ok(entries) = fs::read_dir("/sys/class/hidraw") else { return out };
     let mut nodes: Vec<_> = entries.flatten().map(|e| e.path()).collect();
@@ -84,7 +85,7 @@ pub fn enumerate() -> Vec<DeviceInfo> {
         let (Ok(vid), Ok(pid)) = (u32::from_str_radix(parts[1], 16), u32::from_str_radix(parts[2], 16)) else {
             continue;
         };
-        if vid as u16 != RAZER_VID {
+        if !all && vid as u16 != RAZER_VID {
             continue;
         }
         // .../1-3:1.0/0003:1532:008F.0005 -> interface 0
@@ -102,6 +103,8 @@ pub fn enumerate() -> Vec<DeviceInfo> {
             interface: iface,
             name: name.to_string(),
             backend: "hidraw".into(),
+            // HID_ID bus 0005 = Bluetooth
+            bluetooth: parts[0].trim_start_matches('0') == "5",
             usage_page: 0,
             usage: 0,
         });

@@ -1,10 +1,10 @@
-//! openrazer-import — builds `core/src/devices/openrazer_db.rs` from an OpenRazer source tree.
+//! openrazer-import — builds `crates/rzr-core/src/devices/openrazer_db.rs` from an OpenRazer source tree.
 //!
 //! Maintainer tool, not part of the program. Usage:
 //!
 //! ```text
 //! git clone --depth 1 https://github.com/openrazer/openrazer
-//! cargo run -p openrazer-import -- path/to/openrazer core/src/devices/openrazer_db.rs
+//! cargo run -p openrazer-import -- path/to/openrazer crates/rzr-core/src/devices/openrazer_db.rs
 //! ```
 //!
 //! Only facts are taken (USB product ids, model names, which sysfs attributes and which
@@ -304,7 +304,7 @@ fn analyze_led(src: &Src, func: &str, pid: &str, led: Option<String>) -> Res {
     Res::Ok { reqs, tids: ts, led }
 }
 
-// ------------------------------------------------------------------ features (match core/src/devices/mod.rs)
+// ------------------------------------------------------------------ features (match crates/rzr-core/src/devices.rs)
 const FEATURES: &[(&str, &str, &[(&str, &[&str])])] = &[
     // (flag, sysfs attribute, [(driver function, requests open-rzr sends the same way)])
     ("FIRMWARE", "firmware_version", &[("razer_attr_read_firmware_version", &["razer_chroma_standard_get_firmware_version"])]),
@@ -378,7 +378,7 @@ struct Mouse {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let root = PathBuf::from(args.get(1).expect(USAGE));
-    let out = args.get(2).map(PathBuf::from).unwrap_or_else(|| "core/src/devices/openrazer_db.rs".into());
+    let out = args.get(2).map(PathBuf::from).unwrap_or_else(|| "crates/rzr-core/src/devices/openrazer_db.rs".into());
 
     let h = read(&root.join("driver/razermouse_driver.h"));
     let common_h = read(&root.join("driver/razercommon.h"));

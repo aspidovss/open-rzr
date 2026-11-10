@@ -1,0 +1,25 @@
+[package]
+name = "rzr-cli"
+description = "open-rzr command line: open-rzr-cli and the razer-cli compatible orzr-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "open-rzr-cli"
+path = "src/cli.rs"
+
+# razer-cli compatible command line
+[[bin]]
+name = "orzr-cli"
+path = "src/orzr.rs"
+
+[dependencies]
+rzr-core = { path = "../rzr-core" }
+serde_json = { version = "1", optional = true }
+
+[features]
+# backup / restore files
+default = ["json"]
+json = ["rzr-core/json", "dep:serde_json"]

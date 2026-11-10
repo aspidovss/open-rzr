@@ -1,6 +1,6 @@
 [package]
 name = "openrazer-import"
-description = "Generates core/src/devices/openrazer_db.rs from an OpenRazer source tree (maintainer tool)"
+description = "Generates crates/rzr-core/src/devices/openrazer_db.rs from an OpenRazer source tree (maintainer tool)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

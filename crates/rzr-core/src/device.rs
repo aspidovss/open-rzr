@@ -33,9 +33,12 @@ pub fn find_devices(include_mock: bool) -> Vec<DeviceInfo> {
         .filter(|d| d.backend == "mock" || devices::spec_for(d.pid).is_some())
         .collect();
     v.sort_by_key(|d| {
-        let want = devices::spec_for(d.pid).map(|s| s.interface).unwrap_or(0);
-        let verified = devices::spec_for(d.pid).is_some_and(|s| s.verified());
-        (d.backend == "mock", !verified, d.pid, d.interface != want, d.path.clone())
+        let spec = devices::spec_for(d.pid);
+        let want = spec.map(|s| s.interface).unwrap_or(0);
+        let verified = spec.is_some_and(|s| s.verified());
+        // over Bluetooth the control reports may only be on a vendor-defined collection: try those first
+        let vendor_first = spec.is_some_and(|s| s.bluetooth) && d.usage_page < 0xFF00;
+        (d.backend == "mock", !verified, d.pid, d.interface != want, vendor_first, d.path.clone())
     });
     v
 }
@@ -139,6 +142,13 @@ impl RazerMouse {
         }
         if candidates.is_empty() {
             errors.push("no Razer devices found".into());
+        }
+        if candidates.iter().any(|c| c.bluetooth || devices::spec_for(c.pid).is_some_and(|s| s.bluetooth)) {
+            log_warn!("device", "Bluetooth: no HID collection answered the control reports");
+            return Err(Error::Unsupported(format!(
+                "Over Bluetooth this mouse does not answer setting commands. Connect it by cable or through the HyperSpeed receiver.\n{}",
+                errors.join("\n")
+            )));
         }
         Err(Error::NotFound(format!("Mouse not found or not answering.\n{}", errors.join("\n"))))
     }

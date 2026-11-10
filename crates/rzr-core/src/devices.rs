@@ -150,6 +150,8 @@ pub struct DeviceSpec {
     pub openrazer: u32,
     /// Factory binding of a button, for "Reset to default".
     pub defaults: fn(u8) -> Option<Action>,
+    /// The mouse's Bluetooth identity (its HID collections are tried, vendor-defined ones first).
+    pub bluetooth: bool,
 }
 
 /// Common values of generated OpenRazer entries.
@@ -172,10 +174,11 @@ pub const OPENRAZER_BASE: DeviceSpec = DeviceSpec {
     direct: 0,
     openrazer: 0,
     defaults: generic::default_action,
+    bluetooth: false,
 };
 
 /// Hand-written device modules, checked before the OpenRazer database.
-pub static MODULES: &[&[DeviceSpec]] = &[naga_pro::DEVICES, naga_pro::FAMILY];
+pub static MODULES: &[&[DeviceSpec]] = &[naga_pro::DEVICES, naga_pro::BLUETOOTH, naga_pro::FAMILY];
 
 impl DeviceSpec {
     pub fn zone(&self, id: &str) -> Option<&'static Zone> {

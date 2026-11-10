@@ -17,6 +17,7 @@
         <button data-tab="macros"><span class="ti m">M</span><span data-i18n="tab.macros"></span></button>
         <button data-tab="settings"><svg class="ti" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" stroke-width="1.3"/></svg><span data-i18n="tab.settings"></span></button>
         <button data-tab="diag"><span class="ti">⌘</span><span data-i18n="tab.diag"></span></button>
+        <button data-tab="help"><span class="ti">?</span><span data-i18n="tab.help"></span></button>
       </nav>
       <span class="grow"></span>
       <span id="busy" class="busy hidden"></span>
@@ -31,6 +32,7 @@
         <svg class="pi" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 8.5 10 6l4.5 2.5L10 11Zm0 3L10 14l4.5-2.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
         <select id="prof-select"></select>
         <button id="btn-prof-menu" class="icon" data-i18n-title="prof.menu">•••</button>
+        <button id="btn-write" class="write-btn"><span id="write-state"></span><span id="write-text"></span></button>
         <button id="btn-onboard" class="icon" data-i18n-title="onb.title"><svg viewBox="0 0 16 16" width="15" height="15"><path d="M4 2h6l3 3v9H4Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 2v3M8 2v3M10 2v3" stroke="currentColor" stroke-width="1.1"/></svg></button>
         <span id="auto-chip" class="chip hidden"></span>
       </div>
@@ -69,7 +71,7 @@
 
       <!-- ============================================================ device -->
       <div class="page" id="page-device">
-        <h1 data-i18n="device.title"></h1>
+        <h1><span data-i18n="device.title"></span> <button class="help-link" data-help="devices" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="device.sub"></p>
         <div id="dev-notice" class="notice hidden"></div>
         <div class="card needs-mouse">
@@ -88,7 +90,7 @@
 
       <!-- ============================================================ performance -->
       <div class="page hidden" id="page-perf">
-        <h1 data-i18n="perf.title"></h1>
+        <h1><span data-i18n="perf.title"></span> <button class="help-link" data-help="performance" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="perf.sub"></p>
         <div class="card needs-mouse" id="stages-card" data-feat="dpi_stages">
           <div class="card-title row"><span data-i18n="perf.stages"></span><span class="grow"></span>
@@ -135,7 +137,7 @@
             <button data-hs="1" data-i18n="btn.layer_hs"></button>
           </div>
           <button id="btn-layer" class="icon hidden" data-i18n-title="hs.menu">•••</button>
-          <span class="help" data-i18n-title="btn.hs_help">?</span>
+          <button class="help-link" data-help="customize#hypershift" data-i18n-title="btn.hs_help">?</button>
           <span id="hs-chip" class="hs-chip hidden"></span>
           <span class="grow"></span>
           <div class="plates hidden" id="plate-box">
@@ -178,13 +180,12 @@
             <button class="add" data-add="text"><i>T</i><span data-i18n="mac.a_text"></span></button>
             <button class="add" data-add="macro"><i>▤</i><span data-i18n="mac.a_macro"></span></button>
             <button class="add" data-add="loop"><i>↻</i><span data-i18n="mac.a_loop"></span></button>
-            <div class="add-group sw" data-i18n="mac.grp_sw"></div>
+            <div class="add-group sw"><span data-i18n="mac.grp_sw"></span> <button class="help-link" data-help="macros#program-actions" data-i18n-title="mac.sw_note">?</button></div>
             <button class="add sw" data-add="launch"><i>▶</i><span data-i18n="mac.a_launch"></span></button>
             <button class="add sw" data-add="web"><i>🌐</i><span data-i18n="mac.a_web"></span></button>
             <button class="add sw" data-add="run"><i>&gt;_</i><span data-i18n="mac.a_run"></span></button>
             <button class="add sw" data-add="type"><i>✎</i><span data-i18n="mac.a_type"></span></button>
             <button class="add sw" data-add="sdelay"><i>⏱</i><span data-i18n="mac.a_sdelay"></span></button>
-            <div class="muted small add-note" data-i18n="mac.sw_note"></div>
           </div>
           <!-- editor -->
           <div class="mac-ed">
@@ -226,7 +227,7 @@
 
       <!-- ============================================================ lighting -->
       <div class="page hidden" id="page-lighting">
-        <h1 data-i18n="light.title"></h1>
+        <h1><span data-i18n="light.title"></span> <button class="help-link" data-help="performance#lighting" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="light.sub"></p>
         <div id="poly-notice" class="notice hidden">
           <div data-i18n="poly.notice"></div>
@@ -245,7 +246,7 @@
 
       <!-- ============================================================ power -->
       <div class="page hidden" id="page-power">
-        <h1 data-i18n="power.title"></h1>
+        <h1><span data-i18n="power.title"></span> <button class="help-link" data-help="performance#power" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="power.sub"></p>
         <div class="card needs-mouse" data-feat="idle">
           <div class="card-title" data-i18n="power.sleep"></div>
@@ -262,13 +263,16 @@
 
       <!-- ============================================================ diagnostics -->
       <div class="page hidden" id="page-diag">
-        <h1 data-i18n="diag.title"></h1>
+        <h1><span data-i18n="diag.title"></span> <button class="help-link" data-help="troubleshooting" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="diag.sub"></p>
         <div class="row wrap toolbar">
           <label data-i18n="diag.show"></label>
           <select id="log-filter"><option value="" data-i18n="diag.all"></option><option value=" ui ">ui</option><option value=" device ">device</option><option value=" usb ">usb</option><option value=" app ">app</option><option value="ERROR" data-i18n="diag.errors"></option></select>
           <label class="check"><input type="checkbox" id="log-follow" checked> <span data-i18n="diag.follow"></span></label>
           <span class="grow"></span>
+          <button id="btn-hidlist" data-i18n="diag.hid"></button>
+          <button id="btn-drivers" data-i18n="diag.drivers"></button>
+          <button id="btn-wireless" data-i18n="wl.title"></button>
           <button id="btn-logdir" data-i18n="diag.logdir"></button>
           <button class="primary" id="btn-report" data-i18n="diag.report"></button>
         </div>
@@ -280,6 +284,18 @@
           <button id="btn-raw" data-i18n="diag.send"></button>
         </div>
         <div id="log-path" class="muted small"></div>
+      </div>
+
+      <!-- ============================================================ help -->
+      <div class="page hidden" id="page-help">
+        <div class="help-wrap">
+          <aside class="help-toc">
+            <input id="help-search" type="search" data-i18n-ph="help.search">
+            <ul id="help-list"></ul>
+            <div class="muted small help-src" data-i18n="help.source"></div>
+          </aside>
+          <article id="help-body" class="md"></article>
+        </div>
       </div>
 
       <!-- ============================================================ settings -->
@@ -307,6 +323,11 @@
           <label class="check indent"><input type="checkbox" id="set-minimized"> <span data-i18n="set.minimized"></span></label>
         </div>
         <div class="card">
+          <div class="card-title" data-i18n="wr.set_title"></div>
+          <label class="check"><input type="checkbox" id="set-autowrite"> <span data-i18n="wr.set_auto"></span></label>
+          <div class="muted small"><span data-i18n="wr.set_short"></span> <button class="help-link" data-help="profiles#write-to-mouse" data-i18n-title="help.open">?</button></div>
+        </div>
+        <div class="card">
           <div class="card-title" data-i18n="set.window"></div>
           <label class="check"><input type="checkbox" id="set-close-tray"> <span data-i18n="set.close_to_tray"></span></label>
           <div class="muted small" data-i18n="set.tray_note"></div>
@@ -318,10 +339,9 @@
         </div>
         <div class="card hidden" id="rz-card">
           <div class="card-title" data-i18n="rz.title"></div>
-          <div class="muted small" data-i18n="rz.about"></div>
+          <div class="muted small"><span data-i18n="rz.short"></span> <button class="help-link" data-help="windows#razer-synapse" data-i18n-title="help.open">?</button></div>
           <dl class="kv" id="rz-kv"></dl>
           <label class="check"><input type="checkbox" id="rz-autostart"> <span data-i18n="rz.autostart"></span></label>
-          <div class="muted small" data-i18n="rz.uac"></div>
           <div class="row"><span class="grow"></span>
             <button id="btn-rz-refresh" data-i18n="or.refresh"></button>
             <button id="btn-rz-start" data-i18n="rz.start"></button>
@@ -329,7 +349,7 @@
         </div>
         <div class="card hidden" id="or-card">
           <div class="card-title" data-i18n="or.title"></div>
-          <div class="muted small" data-i18n="or.about"></div>
+          <div class="muted small"><span data-i18n="or.short"></span> <button class="help-link" data-help="linux#openrazer" data-i18n-title="help.open">?</button></div>
           <div class="row"><label data-i18n="or.mode"></label>
             <select id="or-mode">
               <option value="auto" data-i18n="or.mode_auto"></option>
@@ -340,7 +360,7 @@
           <div class="poly-box">
             <div class="row"><b>Polychromatic</b><span class="muted" id="poly-state"></span><span class="grow"></span>
               <button class="btn-poly-open" data-i18n="poly.open"></button></div>
-            <div class="muted small" data-i18n="poly.about"></div>
+            <div class="muted small"><span data-i18n="poly.short"></span> <button class="help-link" data-help="linux#polychromatic" data-i18n-title="help.open">?</button></div>
           </div>
           <div class="row"><span class="grow"></span><button id="btn-or-refresh" data-i18n="or.refresh"></button>
             <button id="btn-or-stop" data-i18n="or.stop"></button></div>

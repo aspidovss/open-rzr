@@ -2328,9 +2328,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "open-rzr"
-version = "0.5.13"
+version = "0.6.1"
 dependencies = [
- "openrzr",
+ "rzr-core",
  "serde",
  "serde_json",
  "tauri",
@@ -2340,16 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "openrazer-import"
-version = "0.5.13"
-
-[[package]]
-name = "openrzr"
-version = "0.5.13"
-dependencies = [
- "hidapi",
- "serde",
- "serde_json",
-]
+version = "0.6.1"
 
 [[package]]
 name = "option-ext"
@@ -2812,6 +2803,28 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rzr-cli"
+version = "0.6.1"
+dependencies = [
+ "rzr-core",
+ "serde_json",
+]
+
+[[package]]
+name = "rzr-core"
+version = "0.6.1"
+dependencies = [
+ "hidapi",
+ "rzr-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rzr-protocol"
+version = "0.6.1"
 
 [[package]]
 name = "same-file"

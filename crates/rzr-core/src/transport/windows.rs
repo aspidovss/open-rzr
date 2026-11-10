@@ -49,15 +49,24 @@ impl Transport for Hidapi {
     }
 }
 
-pub fn enumerate() -> std::result::Result<Vec<DeviceInfo>, String> {
+/// Bluetooth LE HID ("HID over GATT", service 0x1812) and classic Bluetooth HID device paths.
+pub fn is_bluetooth_path(path: &str) -> bool {
+    let p = path.to_ascii_lowercase();
+    p.contains("{00001812-0000-1000-8000-00805f9b34fb}") || p.contains("{00001124-0000-1000-8000-00805f9b34fb}") || p.contains("bthledevice")
+}
+
+/// Razer endpoints, or (`all`) every HID endpoint.
+pub fn enumerate(all: bool) -> std::result::Result<Vec<DeviceInfo>, String> {
     let api = HidApi::new().map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for d in api.device_list() {
-        if d.vendor_id() != RAZER_VID {
+        if !all && d.vendor_id() != RAZER_VID {
             continue;
         }
+        let path = d.path().to_string_lossy().to_string();
         out.push(DeviceInfo {
-            path: d.path().to_string_lossy().to_string(),
+            bluetooth: is_bluetooth_path(&path),
+            path,
             vid: d.vendor_id(),
             pid: d.product_id(),
             interface: d.interface_number(),

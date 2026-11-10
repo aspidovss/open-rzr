@@ -14,6 +14,14 @@ pub fn rule_text() -> String {
     );
     for d in devices::all() {
         s += &format!("# {}\n", d.name);
+        if d.bluetooth {
+            // Bluetooth devices have no USB attributes: match the HID device name (bus 0005)
+            s += &format!(
+                "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"0005:{:04X}:{:04X}.*\", TAG+=\"uaccess\"\n",
+                RAZER_VID, d.pid
+            );
+            continue;
+        }
         s += &format!(
             "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", ATTRS{{idVendor}}==\"{:04x}\", ATTRS{{idProduct}}==\"{:04x}\", TAG+=\"uaccess\"\n",
             RAZER_VID, d.pid
@@ -81,7 +89,7 @@ mod packaged_rule {
     /// packaging/linux/99-open-rzr.rules must match the generated rule (regenerate: open-rzr-cli install-udev --print)
     #[test]
     fn matches_generated() {
-        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../packaging/linux/99-open-rzr.rules");
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux/99-open-rzr.rules");
         if let Ok(s) = std::fs::read_to_string(p) {
             assert_eq!(s, super::rule_text(), "regenerate packaging/linux/99-open-rzr.rules");
         }

@@ -17,8 +17,8 @@ pub const COMMON_BUTTONS: &[(u8, &str)] = &[
     (0x0B, "DPI up (top)"),
     (0x0C, "DPI down (top)"),
     (0x0E, "Profile button (bottom)"),
-    (0x34, "Wheel tilt left"),
-    (0x35, "Wheel tilt right"),
+    (0x34, "Wheel: press left"),
+    (0x35, "Wheel: press right"),
     (0x60, "DPI down"),
     (0x6A, "DPI up"),
 ];
@@ -77,8 +77,9 @@ pub fn default_action(id: u8) -> Option<Action> {
         0x0B => dpi(0x01),
         0x0C => dpi(0x02),
         0x0E => Action { kind: "profile".into(), code: 0x04, ..Default::default() },
-        0x34 => Action::mouse(0x68),
-        0x35 => Action::mouse(0x69),
+        // pressing the wheel sideways scrolls up / down out of the box (checked on the mouse)
+        0x34 => Action::mouse(0x09),
+        0x35 => Action::mouse(0x0A),
         0x40..=0x4B => Action::keyboard(0, SIDE_KEYS[(id - 0x40) as usize]),
         0x50..=0x55 => Action::keyboard(0, SIDE_KEYS[(id - 0x50) as usize]),
         _ => return None,
@@ -146,12 +147,26 @@ const BASE: DeviceSpec = DeviceSpec {
     direct: DIRECT,
     openrazer: VIA_OPENRAZER,
     defaults: default_action,
+    bluetooth: false,
 };
 
 pub static DEVICES: &[DeviceSpec] = &[
     BASE,
     DeviceSpec { pid: 0x0090, name: "Razer Naga Pro (HyperSpeed receiver)", wireless: true, reply_delay_ms: 35, ..BASE },
 ];
+
+/// The Naga Pro itself over Bluetooth LE: another product id (0092) and six HID collections.
+/// Whether the control reports pass over Bluetooth is checked at connection (not tested yet).
+pub static BLUETOOTH: &[DeviceSpec] = &[DeviceSpec {
+    pid: 0x0092,
+    name: "Razer Naga Pro (Bluetooth)",
+    source: Source::Family,
+    wireless: true,
+    interface: -1,
+    reply_delay_ms: 60,
+    bluetooth: true,
+    ..BASE
+}];
 
 /// Naga V2 Pro: the successor with the same three swappable side plates and the same button ids.
 /// Built from this module, not tested on real hardware (`Source::Family`).

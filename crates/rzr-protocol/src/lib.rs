@@ -1,9 +1,11 @@
 //! Razer HID control protocol: 90-byte feature reports.
 //!
+//! `no_std`, no allocations, no dependencies: building and checking reports only.
+//!
 //! ```text
 //! 0      status            (0x00 in requests; reply status from the device)
 //! 1      transaction_id    (0x1F for Naga Pro and most 2019+ mice)
-//! 2..3   remaining_packets
+//! 2..3   remaining_packets (big-endian)
 //! 4      protocol_type     (0x00)
 //! 5      data_size         (meaningful bytes in arguments)
 //! 6      command_class
@@ -13,11 +15,15 @@
 //! 89     reserved
 //! ```
 
-use std::fmt;
+#![no_std]
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
+use core::fmt;
 
 pub const REPORT_LEN: usize = 90;
 pub const ARGS_LEN: usize = 80;
 
+/// Reply status (byte 0).
 pub mod status {
     pub const NEW: u8 = 0x00;
     pub const BUSY: u8 = 0x01;
@@ -26,87 +32,42 @@ pub mod status {
     pub const TIMEOUT: u8 = 0x04;
     pub const NOT_SUPPORTED: u8 = 0x05;
 
-    pub fn name(s: u8) -> String {
-        match s {
-            NEW => "NEW".into(),
-            BUSY => "BUSY".into(),
-            OK => "OK".into(),
-            FAIL => "FAIL".into(),
-            TIMEOUT => "TIMEOUT".into(),
-            NOT_SUPPORTED => "NOT_SUPPORTED".into(),
-            x => format!("0x{x:02x}"),
-        }
+    /// Name of a known status ("BUSY", "OK", …); `None` for other values.
+    pub fn label(s: u8) -> Option<&'static str> {
+        Some(match s {
+            NEW => "NEW",
+            BUSY => "BUSY",
+            OK => "OK",
+            FAIL => "FAIL",
+            TIMEOUT => "TIMEOUT",
+            NOT_SUPPORTED => "NOT_SUPPORTED",
+            _ => return None,
+        })
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Error {
-    /// I/O with the device or the OS failed.
-    Io(String),
-    /// The mouse answered with a non-OK status.
-    Failed { cmd: u16, status: u8 },
-    /// The reply belonged to another command (another program talks to the mouse).
-    Conflict,
-    /// No device / nothing to open.
-    NotFound(String),
-    /// Bad argument from the caller.
-    Invalid(String),
-    /// The OS denied access to the device (Linux: udev rule missing).
-    NoAccess(String),
-    /// the mouse (or the way it is connected) has no such feature
-    Unsupported(String),
+/// What can be wrong with a report itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProtocolError {
+    /// more than 80 argument bytes
+    ArgsTooLong(usize),
+    /// fewer than 90 bytes received
+    TooShort(usize),
+    /// byte 88 is not the XOR of bytes 2..87
+    BadCrc { expected: u8, found: u8 },
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Io(s) => write!(f, "{s}"),
-            Error::Failed { cmd, status } => {
-                write!(f, "command 0x{cmd:04x} failed: {}", status::name(*status))
-            }
-            Error::Conflict => write!(
-                f,
-                "The reply belongs to another command: another program is talking to the mouse \
-                 (Razer Synapse / OpenRazer). Close it."
-            ),
-            Error::NoAccess(s) => write!(f, "{s}"),
-            Error::NotFound(s) => write!(f, "{s}"),
-            Error::Invalid(s) => write!(f, "{s}"),
-            Error::Unsupported(s) => write!(f, "{s}"),
+            ProtocolError::ArgsTooLong(n) => write!(f, "arguments too long ({n} bytes, at most {ARGS_LEN})"),
+            ProtocolError::TooShort(n) => write!(f, "report too short ({n} bytes, {REPORT_LEN} expected)"),
+            ProtocolError::BadCrc { expected, found } => write!(f, "bad checksum: 0x{found:02x}, expected 0x{expected:02x}"),
         }
     }
 }
 
-impl std::error::Error for Error {}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error::Io(e.to_string())
-    }
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-impl Error {
-    /// Stable code for the UI to translate the message: io, failed, conflict, not_found, invalid, no_access.
-    pub fn code(&self) -> &'static str {
-        match self {
-            Error::Io(_) => "io",
-            Error::Failed { .. } => "failed",
-            Error::Conflict => "conflict",
-            Error::NotFound(_) => "not_found",
-            Error::Invalid(_) => "invalid",
-            Error::NoAccess(_) => "no_access",
-            Error::Unsupported(_) => "unsupported",
-        }
-    }
-
-    /// True when the mouse simply does not support/accept this command.
-    pub fn is_failed(&self) -> bool {
-        matches!(self, Error::Failed { .. })
-    }
-}
-
+/// XOR of bytes 2..87.
 pub fn crc(data: &[u8; REPORT_LEN]) -> u8 {
     data[2..88].iter().fold(0u8, |c, b| c ^ b)
 }
@@ -124,14 +85,15 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn new(cmd: u16, args: &[u8], data_size: Option<u8>, transaction_id: u8) -> Result<Report> {
+    /// A request: `cmd` = class << 8 | id; `data_size` defaults to the number of arguments.
+    pub fn new(cmd: u16, args: &[u8], data_size: Option<u8>, transaction_id: u8) -> Result<Report, ProtocolError> {
         if args.len() > ARGS_LEN {
-            return Err(Error::Invalid("arguments too long".into()));
+            return Err(ProtocolError::ArgsTooLong(args.len()));
         }
         let mut a = [0u8; ARGS_LEN];
         a[..args.len()].copy_from_slice(args);
         Ok(Report {
-            status: 0,
+            status: status::NEW,
             transaction_id,
             remaining_packets: 0,
             protocol_type: 0,
@@ -146,6 +108,7 @@ impl Report {
         ((self.command_class as u16) << 8) | self.command_id as u16
     }
 
+    /// The 90 bytes to send, with the checksum.
     pub fn to_bytes(&self) -> [u8; REPORT_LEN] {
         let mut b = [0u8; REPORT_LEN];
         b[0] = self.status;
@@ -160,6 +123,8 @@ impl Report {
         b
     }
 
+    /// Lenient parse: missing bytes are zeros, the checksum is not checked
+    /// (mice do not always fill it in their replies).
     pub fn from_bytes(d: &[u8]) -> Report {
         let mut b = [0u8; REPORT_LEN];
         let n = d.len().min(REPORT_LEN);
@@ -178,18 +143,52 @@ impl Report {
         }
     }
 
-    pub fn hexdump(&self) -> String {
+    /// Strict parse: exactly a full report with a valid checksum.
+    pub fn parse(d: &[u8]) -> Result<Report, ProtocolError> {
+        if d.len() < REPORT_LEN {
+            return Err(ProtocolError::TooShort(d.len()));
+        }
+        let mut b = [0u8; REPORT_LEN];
+        b.copy_from_slice(&d[..REPORT_LEN]);
+        let expected = crc(&b);
+        if b[88] != expected {
+            return Err(ProtocolError::BadCrc { expected, found: b[88] });
+        }
+        Ok(Report::from_bytes(&b))
+    }
+
+    /// The meaningful arguments (`data_size` bytes, at least one).
+    pub fn args(&self) -> &[u8] {
         let n = (self.data_size as usize).clamp(1, ARGS_LEN);
-        let args: Vec<String> = self.arguments[..n].iter().map(|b| format!("{b:02x}")).collect();
-        format!(
-            "st={:02x} tid={:02x} size={:02x} cmd={:02x}{:02x} args={}",
-            self.status,
-            self.transaction_id,
-            self.data_size,
-            self.command_class,
-            self.command_id,
-            args.join(" ")
-        )
+        &self.arguments[..n]
+    }
+
+    /// Does this reply answer `request` (same command and transaction id)?
+    pub fn answers(&self, request: &Report) -> bool {
+        self.cmd() == request.cmd() && self.transaction_id == request.transaction_id
+    }
+
+    /// Reply status: OK.
+    pub fn is_ok(&self) -> bool {
+        self.status == status::OK
+    }
+}
+
+/// One-line dump for logs: `st=02 tid=1f size=02 cmd=0081 args=02 01`.
+impl fmt::Display for Report {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "st={:02x} tid={:02x} size={:02x} cmd={:02x}{:02x} args=",
+            self.status, self.transaction_id, self.data_size, self.command_class, self.command_id
+        )?;
+        for (i, b) in self.args().iter().enumerate() {
+            if i > 0 {
+                f.write_str(" ")?;
+            }
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
     }
 }
 
@@ -228,6 +227,11 @@ pub mod cmd {
     pub const SET_BRIGHTNESS: u16 = 0x0F04;
     pub const GET_BRIGHTNESS: u16 = 0x0F84;
     pub const SET_MOUSE_EFFECT: u16 = 0x030D;
+
+    /// Is this a read ("get") command?
+    pub const fn is_read(cmd: u16) -> bool {
+        cmd & 0x80 != 0
+    }
 }
 
 /// Legacy polling-rate codes.
@@ -250,14 +254,18 @@ pub fn polling_hz(code: u8) -> u32 {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
+    extern crate std;
     use super::*;
+    use std::string::ToString;
 
     #[test]
     fn layout_matches_openrazer() {
         let r = Report::new(cmd::GET_BATTERY, &[], Some(2), 0x1F).unwrap().to_bytes();
         assert_eq!(&r[..8], &[0, 0x1F, 0, 0, 0, 0x02, 0x07, 0x80]);
         assert_eq!(r[88], 0x02 ^ 0x07 ^ 0x80);
+        assert_eq!(r[89], 0);
     }
 
     #[test]
@@ -266,5 +274,40 @@ mod tests {
         let r2 = Report::from_bytes(&r.to_bytes());
         assert_eq!(r, r2);
         assert_eq!(r2.cmd(), cmd::SET_DPI);
+        assert_eq!(Report::parse(&r.to_bytes()).unwrap(), r);
+    }
+
+    #[test]
+    fn remaining_packets_big_endian() {
+        let mut r = Report::new(cmd::SET_MACRO_DATA, &[], None, 0x1F).unwrap();
+        r.remaining_packets = 0x0102;
+        let b = r.to_bytes();
+        assert_eq!(&b[2..4], &[0x01, 0x02]);
+        assert_eq!(Report::from_bytes(&b).remaining_packets, 0x0102);
+    }
+
+    #[test]
+    fn errors() {
+        assert_eq!(Report::new(0, &[0; 81], None, 0x1F), Err(ProtocolError::ArgsTooLong(81)));
+        assert_eq!(Report::parse(&[0; 10]), Err(ProtocolError::TooShort(10)));
+        let mut b = Report::new(cmd::GET_FIRMWARE, &[0, 0], None, 0x1F).unwrap().to_bytes();
+        b[88] ^= 0xFF;
+        assert!(matches!(Report::parse(&b), Err(ProtocolError::BadCrc { .. })));
+        // a short reply is still readable leniently
+        assert_eq!(Report::from_bytes(&b[..8]).cmd(), cmd::GET_FIRMWARE);
+    }
+
+    #[test]
+    fn display_and_helpers() {
+        let mut r = Report::new(cmd::GET_FIRMWARE, &[0x02, 0x01], None, 0x1F).unwrap();
+        r.status = status::OK;
+        assert_eq!(r.to_string(), "st=02 tid=1f size=02 cmd=0081 args=02 01");
+        assert!(r.is_ok());
+        assert!(r.answers(&Report::new(cmd::GET_FIRMWARE, &[], Some(2), 0x1F).unwrap()));
+        assert!(!r.answers(&Report::new(cmd::GET_SERIAL, &[], Some(2), 0x1F).unwrap()));
+        assert!(cmd::is_read(cmd::GET_DPI) && !cmd::is_read(cmd::SET_DPI));
+        assert_eq!(status::label(status::BUSY), Some("BUSY"));
+        assert_eq!(status::label(0x42), None);
+        assert_eq!((polling_code(500), polling_hz(0x08)), (Some(0x02), 125));
     }
 }

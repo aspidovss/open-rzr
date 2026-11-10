@@ -18,16 +18,15 @@ pub const BUTTONS: &[(u8, &str)] = &[
     (0x05, "Side forward"),
     (0x09, "Scroll up"),
     (0x0A, "Scroll down"),
-    (0x34, "Wheel tilt left"),
-    (0x35, "Wheel tilt right"),
+    (0x34, "Wheel: press left"),
+    (0x35, "Wheel: press right"),
 ];
 
 /// Factory bindings that are the same on every mouse; others are unknown (no "Reset to default").
+/// The sideways wheel press differs between models (scroll up/down on the Naga Pro, left/right on others).
 pub fn default_action(id: u8) -> Option<Action> {
     Some(match id {
         0x01..=0x05 | 0x09 | 0x0A => Action::mouse(id),
-        0x34 => Action::mouse(0x68),
-        0x35 => Action::mouse(0x69),
         _ => return None,
     })
 }

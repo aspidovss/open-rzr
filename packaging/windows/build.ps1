@@ -24,11 +24,11 @@ if (-not (& rustup toolchain list 2>$null)) {
 }
 cargo --version
 
-Step "tests (core)"
-cargo test -p openrzr --release; Check
+Step "tests (protocol, core)"
+cargo test -p rzr-protocol -p rzr-core --release; Check
 
 Step "build open-rzr.exe + open-rzr-cli.exe + orzr-cli.exe"
-cargo build --release -p openrzr -p open-rzr; Check
+cargo build --release -p rzr-cli -p open-rzr; Check
 
 $ver = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
 Step "smoke test $ver"

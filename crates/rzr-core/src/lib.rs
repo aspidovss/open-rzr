@@ -1,7 +1,7 @@
 //! open-rzr core: Razer mouse protocol and device access, std-only.
 //! No network, no telemetry, no accounts.
 //!
-//! Layout: `protocol` (report format) → `transport` (HID / OpenRazer bridge / emulator) →
+//! Layout: `protocol` (report format from the `rzr-protocol` crate + the error type) → `transport` (HID / OpenRazer bridge / emulator) →
 //! `device` (a connected mouse) + `features/*` (what it can do) + `devices/*` (model modules).
 //! Codecs: `bindings` (button actions), `macros`, `lighting`, `hidkeys`.
 
@@ -12,6 +12,7 @@ pub mod logs;
 pub mod bindings;
 pub mod compat;
 pub mod device;
+pub mod drivers;
 pub mod devices;
 pub mod features;
 pub mod foreground;
@@ -26,6 +27,7 @@ pub mod protocol;
 pub mod synapse;
 pub mod transport;
 pub mod udev;
+pub mod wireless;
 
 pub use bindings::Action;
 pub use device::{find_devices, Backup, ButtonInfo, DpiStages, RazerMouse};

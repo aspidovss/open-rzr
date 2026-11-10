@@ -46,6 +46,12 @@ struct AppState {
     temp_layer: Mutex<Option<Profile>>,
     /// program actions of macros: trigger key -> (macro, actions)
     actions: program_actions::Table,
+    /// the close button was pressed and the window was asked (it may have unsaved changes)
+    closing: Mutex<Option<std::time::Instant>>,
+    /// where the window was before it was closed to the tray (logical x, y, width, height, maximized)
+    geometry: Mutex<Option<(f64, f64, f64, f64, bool)>>,
+    /// page and device the window showed, kept while it is closed to the tray
+    ui_memory: Mutex<String>,
 }
 
 type R<T> = Result<T, String>;
@@ -78,12 +84,84 @@ fn err(e: &openrzr::Error) -> String {
     format!("[{}] {e}", e.code())
 }
 
+/// Show the main window; it is created anew if it was closed to the tray.
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        return;
     }
+    if let Err(e) = create_main(app) {
+        log_error!("app", "cannot open the window: {e}");
+    }
+}
+
+/// The main window. Closing it to the tray destroys it together with its WebView2 / WebKit
+/// processes (~120 MB); only the Rust part stays in the background.
+fn create_main(app: &AppHandle) -> tauri::Result<()> {
+    let geometry = *lock(&app.state::<AppState>().geometry);
+    let mut b = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+        .title("open-rzr")
+        .inner_size(1140.0, 780.0)
+        .min_inner_size(920.0, 620.0)
+        .disable_drag_drop_handler()
+        .visible(true);
+    match geometry {
+        Some((x, y, w, h, max)) => b = b.position(x, y).inner_size(w, h).maximized(max),
+        None => b = b.center(),
+    }
+    let w = b.build()?;
+    let _ = w.set_focus();
+    log_debug!("app", "window created");
+    Ok(())
+}
+
+/// Remember where the window is and destroy it (the app keeps running in the tray).
+fn close_to_tray(window: &tauri::Window) {
+    let st = window.state::<AppState>();
+    *lock(&st.closing) = None;
+    if let (Ok(sf), Ok(pos), Ok(size)) = (window.scale_factor(), window.outer_position(), window.inner_size()) {
+        let max = window.is_maximized().unwrap_or(false);
+        let (p, z) = (pos.to_logical::<f64>(sf), size.to_logical::<f64>(sf));
+        if !max && z.width > 100.0 {
+            *lock(&st.geometry) = Some((p.x, p.y, z.width, z.height, false));
+        } else if let Some(g) = lock(&st.geometry).as_mut() {
+            g.4 = max;
+        }
+    }
+    match window.destroy() {
+        Ok(()) => log_info!("app", "window closed to the tray (WebView released)"),
+        Err(e) => {
+            log_warn!("app", "cannot destroy the window, hiding it: {e}");
+            let _ = window.hide();
+        }
+    }
+}
+
+/// The window agreed to close (no unsaved changes, or the user discarded them).
+#[tauri::command]
+async fn hide_to_tray(window: tauri::Window) -> R<()> {
+    close_to_tray(&window);
+    Ok(())
+}
+
+/// The user kept the window open (unsaved changes).
+#[tauri::command]
+async fn close_cancelled(st: State<'_, AppState>) -> R<()> {
+    *lock(&st.closing) = None;
+    Ok(())
+}
+
+#[tauri::command]
+async fn ui_state_get(st: State<'_, AppState>) -> R<String> {
+    Ok(lock(&st.ui_memory).clone())
+}
+
+#[tauri::command]
+async fn ui_state_set(st: State<'_, AppState>, state: String) -> R<()> {
+    *lock(&st.ui_memory) = state;
+    Ok(())
 }
 
 fn poly_label(lang: &str) -> &'static str {
@@ -185,6 +263,7 @@ struct ConnectInfo {
     /// zone -> effects it supports
     zone_effects: HashMap<String, Vec<&'static str>>,
     wireless: bool,
+    bluetooth: bool,
     has_battery: bool,
     max_dpi: u16,
     max_stages: usize,
@@ -211,9 +290,14 @@ struct ConnectInfo {
 async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>) -> R<ConnectInfo> {
     log_info!("ui", "connect: {} candidates", candidates.len());
     *lock(&st.mouse) = None;
+    let bluetooth = candidates.iter().any(|c| c.bluetooth || devices::spec_for(c.pid).is_some_and(|s| s.bluetooth));
     let mut m = RazerMouse::open_first(&candidates).map_err(|e| {
         log_error!("ui", "connect failed: {e}");
-        err(&e)
+        if bluetooth {
+            format!("[bluetooth] {e}")
+        } else {
+            err(&e)
+        }
     })?;
     let mut ci = ConnectInfo {
         name: m.name().into(),
@@ -226,6 +310,7 @@ async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>) -> R<Conn
         openrazer: m.openrazer.as_ref().map(|d| d.display().to_string()),
         zone_effects: m.zones.iter().map(|z| (z.id.to_string(), m.zone_effects(z.id))).collect(),
         wireless: m.spec.wireless,
+        bluetooth: m.info.bluetooth || m.spec.bluetooth,
         has_battery: m.has(feat::BATTERY),
         max_dpi: m.spec.max_dpi,
         max_stages: m.spec.max_dpi_stages,
@@ -909,6 +994,8 @@ struct ProfileMeta {
     links: Vec<String>,
     /// on-board slots (1..5) holding this profile on the connected mouse
     slots: Vec<u8>,
+    /// None: in no slot; Some(true): every slot holds exactly this version; Some(false): changed since
+    written: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -922,6 +1009,30 @@ struct ProfilesInfo {
     autoswitch: store::AutoSwitch,
     /// the program in front can be followed on this system
     linking: bool,
+    /// changes go straight into the slot (Settings)
+    autowrite: bool,
+}
+
+/// What a slot must hold for a profile to count as written: bindings, DPI stages, macros.
+fn fingerprint(p: &Profile) -> String {
+    use std::hash::{Hash, Hasher};
+    let text = serde_json::to_string(&(&p.buttons, &p.dpi_stages, &p.macros)).unwrap_or_default();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// Remember that `slot` now holds this version of `p`.
+fn mark_written(st: &AppState, slot: u8, p: Option<&Profile>) {
+    if !(1..=5).contains(&slot) {
+        return;
+    }
+    let serial = serial_of(st);
+    let mut s = lock(&st.store);
+    let v = s.written.entry(serial).or_default();
+    v.resize(5, None);
+    v[slot as usize - 1] = p.map(fingerprint);
+    s.save();
 }
 
 fn serial_of(st: &AppState) -> String {
@@ -935,20 +1046,47 @@ fn slots_of(st: &AppState, serial: &str) -> Vec<Option<String>> {
 }
 
 /// Where edits of profile `id` go: its on-board slot, or the temporary layer.
+/// Where changes of profile `id` go: its slot when "write changes at once" is on, else the
+/// temporary layer (applies at once, kept in RAM) until "Write to mouse".
 fn target_slot(st: &AppState, serial: &str, id: &str) -> u8 {
+    if !lock(&st.store).autowrite {
+        return TEMPORARY;
+    }
     slots_of(st, serial).iter().position(|s| s.as_deref() == Some(id)).map(|i| i as u8 + 1).unwrap_or(TEMPORARY)
 }
 
 fn profiles_info(st: &AppState) -> ProfilesInfo {
     let serial = serial_of(st);
     let slots = slots_of(st, &serial);
-    let list = library::list()
+    let profiles = library::list();
+    let written = {
+        let mut s = lock(&st.store);
+        let mut w = s.written.get(&serial).cloned().unwrap_or_default();
+        w.resize(5, None);
+        // slots filled by earlier versions (which wrote at once) count as written
+        let mut changed = false;
+        for (i, id) in slots.iter().enumerate() {
+            if let (Some(id), None) = (id, &w[i]) {
+                if let Some(p) = profiles.iter().find(|p| &p.id == id) {
+                    w[i] = Some(fingerprint(p));
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            s.written.insert(serial.clone(), w.clone());
+            s.save();
+        }
+        w
+    };
+    let list = profiles
         .into_iter()
-        .map(|p| ProfileMeta {
-            slots: slots.iter().enumerate().filter(|(_, s)| s.as_deref() == Some(p.id.as_str())).map(|(i, _)| i as u8 + 1).collect(),
-            id: p.id,
-            name: p.name,
-            links: p.links,
+        .map(|p| {
+            let mine: Vec<u8> =
+                slots.iter().enumerate().filter(|(_, s)| s.as_deref() == Some(p.id.as_str())).map(|(i, _)| i as u8 + 1).collect();
+            let fp = fingerprint(&p);
+            let written = (!mine.is_empty()).then(|| mine.iter().all(|n| written[*n as usize - 1].as_deref() == Some(fp.as_str())));
+            ProfileMeta { slots: mine, written, id: p.id, name: p.name, links: p.links }
         })
         .collect();
     let flash = lock(&st.mouse).as_mut().filter(|m| m.has(feat::MACROS)).and_then(|m| m.flash_usage().ok());
@@ -960,6 +1098,7 @@ fn profiles_info(st: &AppState) -> ProfilesInfo {
         flash,
         autoswitch: s.autoswitch.clone(),
         linking: foreground::supported(),
+        autowrite: s.autowrite,
     }
 }
 
@@ -1060,6 +1199,8 @@ async fn profile_set_button(st: State<'_, AppState>, id: String, button: u8, hyp
     library::save(&p)?;
     if slot == TEMPORARY {
         *lock(&st.temp_layer) = Some(p);
+    } else {
+        mark_written(&st, slot, Some(&p));
     }
     Ok(back)
 }
@@ -1074,6 +1215,8 @@ async fn profile_layer(st: State<'_, AppState>, id: String, op: String) -> R<usi
     library::save(&p)?;
     if slot == TEMPORARY {
         *lock(&st.temp_layer) = Some(p);
+    } else {
+        mark_written(&st, slot, Some(&p));
     }
     Ok(n)
 }
@@ -1094,7 +1237,40 @@ async fn profile_set_dpi(st: State<'_, AppState>, id: String, stages: Vec<(u16, 
     })?;
     p.dpi_stages = Some(DpiStages { active, stages });
     library::save(&p)?;
+    if slot != TEMPORARY {
+        mark_written(&st, slot, Some(&p));
+    }
     Ok(dpi)
+}
+
+/// "Write to mouse": the profile into every slot that holds it.
+#[tauri::command]
+async fn profile_write(st: State<'_, AppState>, id: String) -> R<ProfilesInfo> {
+    let p = library::load(&id)?;
+    let serial = serial_of(&st);
+    let slots: Vec<u8> =
+        slots_of(&st, &serial).iter().enumerate().filter(|(_, s)| s.as_deref() == Some(id.as_str())).map(|(i, _)| i as u8 + 1).collect();
+    if slots.is_empty() {
+        return Err("[invalid] the profile is in no slot: choose one".into());
+    }
+    for slot in slots {
+        log_info!("ui", "write \"{}\" -> slot {slot}", p.name);
+        let n = with_mouse(&st, "write profile to slot", |m| m.write_profile(&p, slot, None))?;
+        log_info!("ui", "slot {slot}: {n} records");
+        mark_written(&st, slot, Some(&p));
+    }
+    Ok(profiles_info(&st))
+}
+
+#[tauri::command]
+async fn set_autowrite(st: State<'_, AppState>, on: bool) -> R<ProfilesInfo> {
+    log_info!("ui", "write changes straight into slots: {on}");
+    {
+        let mut s = lock(&st.store);
+        s.autowrite = on;
+        s.save();
+    }
+    Ok(profiles_info(&st))
 }
 
 /// Synapse "Add": `from` = "default" (factory bindings) | "current" (copy of the selected one) | "slot:N" (read from the mouse).
@@ -1170,6 +1346,9 @@ async fn profile_reset(st: State<'_, AppState>, id: String) -> R<Profile> {
         m.write_profile(&p, slot, None).map(|_| ())
     })?;
     library::save(&p)?;
+    if slot != TEMPORARY {
+        mark_written(&st, slot, Some(&p));
+    }
     Ok(p)
 }
 
@@ -1177,7 +1356,8 @@ async fn profile_reset(st: State<'_, AppState>, id: String) -> R<Profile> {
 #[tauri::command]
 async fn profile_reload(st: State<'_, AppState>, id: String) -> R<Profile> {
     let old = library::load(&id)?;
-    let slot = target_slot(&st, &serial_of(&st), &id);
+    // its on-board slot even when changes go to the temporary layer first
+    let slot = slots_of(&st, &serial_of(&st)).iter().position(|s| s.as_deref() == Some(id.as_str())).map(|i| i as u8 + 1).unwrap_or(TEMPORARY);
     let mut p = with_mouse(&st, "read profile", |m| m.read_profile(if slot == TEMPORARY { 0 } else { slot }, &old.name))?;
     p.id = old.id;
     p.links = old.links;
@@ -1186,6 +1366,9 @@ async fn profile_reload(st: State<'_, AppState>, id: String) -> R<Profile> {
         p.dpi_stages = old.dpi_stages;
     }
     library::save(&p)?;
+    if slot != TEMPORARY {
+        mark_written(&st, slot, Some(&p));
+    }
     Ok(p)
 }
 
@@ -1219,6 +1402,9 @@ async fn slot_assign(st: State<'_, AppState>, slot: u8, id: Option<String>) -> R
         let p = library::load(id)?;
         log_info!("ui", "slot {slot} <- \"{}\"", p.name);
         with_mouse(&st, "write profile to slot", |m| m.write_profile(&p, slot, None).map(|_| ()))?;
+        mark_written(&st, slot, Some(&p));
+    } else {
+        mark_written(&st, slot, None);
     }
     {
         let mut s = lock(&st.store);
@@ -1228,6 +1414,75 @@ async fn slot_assign(st: State<'_, AppState>, slot: u8, id: Option<String>) -> R
         s.save();
     }
     Ok(profiles_info(&st))
+}
+
+/// Every HID endpoint the system reports (Diagnostics), Razer first.
+#[tauri::command]
+async fn all_hid_devices() -> R<Vec<DeviceInfo>> {
+    let mut v = openrzr::transport::enumerate_all();
+    v.sort_by_key(|d| (d.vid != devices::RAZER_VID, d.vid, d.pid, d.usage_page, d.usage, d.path.clone()));
+    log_info!("ui", "all HID devices: {}", v.len());
+    for d in v.iter().filter(|d| d.vid == devices::RAZER_VID) {
+        log_info!("ui", "  {} page 0x{:04x} usage 0x{:04x}{} {}", d.label(), d.usage_page, d.usage, if d.bluetooth { " BT" } else { "" }, d.path);
+    }
+    Ok(v)
+}
+
+/// Diagnostics → Wireless: HID collections, probes and GATT services of a mouse on Bluetooth.
+/// `probe`: "" | "vendor" | "all" (sends the read-only firmware request).
+#[tauri::command]
+async fn wireless_debug(probe: String) -> R<openrzr::wireless::Report> {
+    log_info!("ui", "wireless debug (probe: {})", if probe.is_empty() { "no" } else { probe.as_str() });
+    Ok(openrzr::wireless::report(&probe))
+}
+
+/// Diagnostics → Wireless → Razer GATT channel: subscribe, write a request ("" = listen only,
+/// "fw" = read-only firmware request, or hex), collect notifications.
+#[tauri::command]
+async fn wireless_gatt(request: String, listen_ms: u32) -> R<openrzr::wireless::Exchange> {
+    log_info!("ui", "wireless GATT exchange (request: {})", if request.trim().is_empty() { "listen only" } else { request.trim() });
+    Ok(tauri::async_runtime::spawn_blocking(move || openrzr::wireless::gatt_exchange(&request, listen_ms)).await.unwrap_or_default())
+}
+
+/// Drivers serving Razer devices (Diagnostics): standard HID, or Razer packages / filters left by Synapse.
+#[tauri::command]
+async fn razer_drivers() -> R<Vec<openrzr::drivers::DriverInfo>> {
+    let v = openrzr::drivers::list();
+    for d in &v {
+        log_info!("ui", "driver: {} — {} {} {} [{}]{}", d.device, d.provider, d.version, d.service, d.filters, if d.razer { " RAZER" } else { "" });
+    }
+    Ok(v)
+}
+
+/// First id of the service macros open-rzr writes itself (turbo for media keys).
+const SERVICE_MACRO: u16 = 0xF000;
+
+/// Turbo for a media key: the mouse has no turbo for them, so a small macro "press, release,
+/// pause" is played while the button is held. Reuses an identical one already in the mouse.
+#[tauri::command]
+async fn turbo_media(st: State<'_, AppState>, code: u16, interval: u16) -> R<u16> {
+    let interval = interval.clamp(20, 5000) as i64;
+    let steps = vec![
+        MacroStep::new("consumer", code as i64),
+        MacroStep::new("delay", 10),
+        MacroStep::new("consumer", 0),
+        MacroStep::new("delay", (interval - 10).max(10)),
+    ];
+    let id = with_mouse(&st, "turbo macro", |m| {
+        let ids = m.macro_ids()?;
+        for id in ids.iter().copied().filter(|i| *i >= SERVICE_MACRO) {
+            if m.read_macro(id).map(|s| s == steps).unwrap_or(false) {
+                return Ok(id);
+            }
+        }
+        let id = (SERVICE_MACRO..u16::MAX)
+            .find(|i| !ids.contains(i))
+            .ok_or_else(|| openrzr::Error::Invalid("no free service macro id".into()))?;
+        m.write_macro(id, &steps)?;
+        Ok(id)
+    })?;
+    log_info!("ui", "turbo media 0x{code:04x} / {interval} ms -> service macro #{id}");
+    Ok(id)
 }
 
 #[tauri::command]
@@ -1536,6 +1791,9 @@ fn main() {
         mock,
         hotplug: AtomicBool::new(false),
         temp_layer: Mutex::new(None),
+        closing: Mutex::new(None),
+        geometry: Mutex::new(None),
+        ui_memory: Mutex::new(String::new()),
         actions: Arc::new(Mutex::new(HashMap::new())),
     };
     let minimized = std::env::args().any(|a| a == autostart::MINIMIZED_ARG);
@@ -1601,9 +1859,8 @@ fn main() {
             *lock(&app.state::<AppState>().tray) = Some(TrayHandles { icon, show, quit, poly });
             if minimized {
                 log_info!("app", "started minimized to tray");
-            } else if let Some(w) = app.get_webview_window("main") {
-                w.show()?;
-                w.set_focus()?;
+            } else {
+                create_main(app.handle())?;
             }
             Ok(())
         })
@@ -1612,8 +1869,16 @@ fn main() {
                 let st = window.state::<AppState>();
                 if lock(&st.store).close_to_tray() {
                     api.prevent_close();
-                    let _ = window.hide();
-                    log_debug!("app", "window hidden to tray");
+                    // ask the page first (unsaved macro); a second press while it does not answer closes anyway
+                    let asked = *lock(&st.closing);
+                    match asked {
+                        Some(t) if t.elapsed() > std::time::Duration::from_millis(1500) => close_to_tray(window),
+                        Some(_) => {}
+                        None => {
+                            *lock(&st.closing) = Some(std::time::Instant::now());
+                            let _ = window.app_handle().emit("close-requested", ());
+                        }
+                    }
                 }
             }
         })
@@ -1630,12 +1895,23 @@ fn main() {
             tables, get_settings, set_language, set_autostart, set_close_to_tray, default_action, quit_app,
             openrazer_status, set_openrazer_mode, stop_openrazer_daemon, supported_devices,
             razer_software, stop_razer_software, start_razer_software,
-            profiles, profile_get, profile_select, profile_set_button, profile_layer, profile_set_dpi, profile_create,
+            profiles, profile_get, profile_select, profile_set_button, profile_layer, profile_write, set_autowrite, all_hid_devices, razer_drivers, wireless_debug, wireless_gatt, turbo_media, profile_set_dpi, profile_create,
             profile_rename, profile_duplicate, profile_delete, profile_reset, profile_reload,
             profile_export, profile_import, open_folder_of, slot_assign, profile_links,
-            running_programs, set_autoswitch, set_ui_style, open_polychromatic
+            running_programs, set_autoswitch, set_ui_style, open_polychromatic,
+            hide_to_tray, close_cancelled, ui_state_get, ui_state_set
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|handle, event| {
+                // the window closed to the tray is destroyed: keep running without windows
+                if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+                    if lock(&handle.state::<AppState>().store).close_to_tray() {
+                        api.prevent_exit();
+                    }
+                }
+            })
+        });
     if let Err(e) = result {
         log_error!("app", "window failed to start: {e}");
         eprintln!("open-rzr: {e}");
