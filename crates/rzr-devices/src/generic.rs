@@ -43,6 +43,7 @@ pub fn may_have_onboard(transaction_id: u8) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

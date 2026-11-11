@@ -290,7 +290,8 @@ impl Ctx<'_> {
                 }
                 let gap = it.extra.max(0);
                 for c in it.text.chars().filter(|c| *c != '\r') {
-                    let (shift, k) = ascii_key(c).unwrap();
+                    // checked above: every character has a key
+                    let Some((shift, k)) = ascii_key(c) else { continue };
                     if shift {
                         self.push("key_down", 0xE1)?;
                     }

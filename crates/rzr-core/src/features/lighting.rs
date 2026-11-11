@@ -21,9 +21,21 @@ impl RazerMouse {
 
     pub fn get_brightness(&mut self, zone: &str) -> Result<u8> {
         let z = self.zone(zone)?;
+        // the Naga Pro cannot report the brightness of its side panel (FAIL on every connect):
+        // ask once per connection, then say so without a request
+        if self.brightness_unreadable.contains(&z.id) {
+            return Err(Error::Unsupported(format!("the mouse does not report the brightness of zone {zone}")));
+        }
         let led = lighting::brightness_led_of(zone, z.led);
-        let a = self.req(cmd::GET_BRIGHTNESS, &[VARSTORE, led], Some(3))?;
-        Ok(((a[2] as u32 * 100 + 127) / 255) as u8)
+        match self.req(cmd::GET_BRIGHTNESS, &[VARSTORE, led], Some(3)) {
+            Ok(a) => Ok(((a[2] as u32 * 100 + 127) / 255) as u8),
+            Err(e) if e.is_failed() => {
+                log_debug!("device", "brightness of zone {zone} cannot be read; not asked again");
+                self.brightness_unreadable.push(z.id);
+                Err(e)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn set_brightness(&mut self, zone: &str, percent: u8) -> Result<()> {

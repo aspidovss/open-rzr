@@ -142,6 +142,7 @@ pub fn mouse_name(b: u8) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

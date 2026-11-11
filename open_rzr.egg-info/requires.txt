@@ -1,7 +1,0 @@
-PySide6-Essentials>=6.5
-
-[:sys_platform != "linux"]
-hidapi>=0.14
-
-[build]
-pyinstaller>=6.0

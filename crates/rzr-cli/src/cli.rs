@@ -1,6 +1,10 @@
-//! open-rzr-cli — command line for Razer mice.
+//! open-rzr-cli — command line for Razer mice (arguments parsed with clap).
+
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 use std::process::ExitCode;
+
+use clap::{Parser, Subcommand};
 
 use openrzr::bindings::{DPI_AIM, DPI_FIXED, PROFILE_FIXED};
 use openrzr::device::{find_devices, RazerMouse};
@@ -8,91 +12,232 @@ use openrzr::lighting::{self, ZoneState};
 use openrzr::logs::{self, Level};
 use openrzr::{hidkeys, macros, udev, Action, Error};
 
-const HELP: &str = "open-rzr-cli — configure Razer mice without Synapse
+const BIND_HELP: &str = "\
+Binding kinds (bind ID KIND ARGS):
+  off | default
+  mouse left|right|middle|back|forward|wheelup|wheeldown|wheelleft|wheelright [--double] [--turbo MS]
+  key ctrl+shift+c [--turbo MS]
+  media volup|voldown|mute|play|next|prev
+  macro ID [--mode once|hold|toggle|sequence] [--repeat N]
+  dpi next|prev|cycle|cycleback | dpi stage N | dpi aim DPI
+  profile next|prev|cycle|cycleback|N
+  hypershift | rawbind HEX
 
-Global flags: --mock (emulator)  -v (log to console)  --profile N (1-5, 0 = temporary)
-              --log-level debug|info|warn|error
-              --openrazer auto|on|off   OpenRazer compatibility (Linux, default auto)
+Numbers may be decimal or hex (0x40). Examples:
+  open-rzr-cli bind 0x40 key ctrl+shift+c
+  open-rzr-cli --profile 2 bind 0x41 mouse back
+  open-rzr-cli light all static 00ff80
+  open-rzr-cli -v raw 0085 --size 1";
 
-Commands:
-  list                                 devices found
-  devices [TEXT]                       supported models (own modules and the OpenRazer database)
-  openrazer [status|stop]              OpenRazer driver/daemon state; stop the daemon
-  info                                 model, firmware, features, DPI, battery
-  dpi [X [Y]]                          show / set DPI
-  stages [DPI...] [--active N]         DPI stages
-  poll [125|500|1000]                  polling rate
-  idle [SECONDS]                       sleep after idle (60-900)
-  lowbatt [PERCENT]                    low power mode threshold (5-100)
-  buttons [--all] [--hypershift] [--plate auto|12|6|2|all]
-                                       buttons and bindings (Naga: attached plate only)
-  plate                                which side plate is attached (Naga Pro)
-  bind ID KIND [ARGS] [--hypershift]
-       off | default | mouse left|right|middle|back|forward|wheelup|wheeldown [--double] [--turbo MS]
-       key ctrl+shift+c [--turbo MS] | media volup|voldown|mute|play|next|prev
-       macro ID [--mode once|hold|toggle|sequence] [--repeat N]
-       dpi next|prev|cycle|cycleback|stage N|aim DPI | profile next|prev|cycle|cycleback|N
-       hypershift | rawbind HEX
-  copy-profile FROM TO                 copy bindings and DPI stages between profiles
-  macro list | read ID | write ID \"ctrl+a, 30ms, ctrl+c\" | delete ID | usage
-  light ZONE|all EFFECT [COLOUR...] [--speed 1-4]   zones: scroll logo side left right backlight matrix
-       off|static|spectrum|wave|breath|breath2|breathrandom|reactive|custom
-  brightness ZONE|all [PERCENT]
-  backup FILE [--profiles 1,2,3]       backup to JSON
-  restore FILE                         restore from a backup
-  raw CMD [BYTES...] [--size N]        any command (hex), e.g.: raw 0085 --size 1
-  logs [N]                             log file path and the last N lines
-  watch                                print Razer devices being plugged in / removed (Ctrl+C to stop)
-  razer [status|stop|stop-autostart]   Windows: Razer Synapse services and programs; stop them
-  install-udev [--print]               Linux: mouse access without root (--print: show the rule)
-  version
-";
+/// Configure Razer mice without Synapse. No network, no accounts.
+#[derive(Parser, Debug)]
+#[command(name = "open-rzr-cli", version, after_help = BIND_HELP, arg_required_else_help = true)]
+struct Cli {
+    /// Use the emulator only (never touches a real mouse)
+    #[arg(long, global = true)]
+    mock: bool,
 
-struct Args {
-    pos: Vec<String>,
-    flags: Vec<(String, Option<String>)>,
+    /// Print the log to the console too
+    #[arg(short = 'v', long = "verbose", global = true)]
+    verbose: bool,
+
+    /// On-board profile 1-5 (0 = temporary, not stored)
+    #[arg(long, global = true, default_value_t = 1, value_parser = clap::value_parser!(u8).range(0..=5))]
+    profile: u8,
+
+    /// Log level
+    #[arg(long, global = true, value_name = "LEVEL", value_parser = ["debug", "info", "warn", "error"])]
+    log_level: Option<String>,
+
+    /// OpenRazer compatibility (Linux)
+    #[arg(long, global = true, value_name = "MODE", value_parser = ["auto", "on", "off"])]
+    openrazer: Option<String>,
+
+    #[command(subcommand)]
+    cmd: Cmd,
 }
 
-const VALUE_FLAGS: &[&str] = &["--plate", "--profile", "--active", "--turbo", "--mode", "--repeat", "--speed",
-                               "--profiles", "--size", "--log-level", "--openrazer"];
-
-impl Args {
-    fn parse(raw: Vec<String>) -> Args {
-        let mut pos = Vec::new();
-        let mut flags = Vec::new();
-        let mut it = raw.into_iter();
-        while let Some(a) = it.next() {
-            if a.starts_with("--") || a == "-v" || a == "-h" {
-                if let Some((k, v)) = a.split_once('=') {
-                    flags.push((k.to_string(), Some(v.to_string())));
-                } else if VALUE_FLAGS.contains(&a.as_str()) {
-                    flags.push((a, it.next()));
-                } else {
-                    flags.push((a, None));
-                }
-            } else {
-                pos.push(a);
-            }
-        }
-        Args { pos, flags }
-    }
-    fn has(&self, f: &str) -> bool {
-        self.flags.iter().any(|(k, _)| k == f)
-    }
-    fn val(&self, f: &str) -> Option<&str> {
-        self.flags.iter().rev().find(|(k, _)| k == f).and_then(|(_, v)| v.as_deref())
-    }
-    fn num<T: std::str::FromStr>(&self, f: &str, default: T) -> Result<T, String> {
-        match self.val(f) {
-            None => Ok(default),
-            Some(v) => v.parse().map_err(|_| format!("{f}: bad number {v}")),
-        }
-    }
-    fn arg(&self, i: usize) -> Option<&str> {
-        self.pos.get(i).map(String::as_str)
-    }
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Devices found
+    List,
+    /// Supported models (own modules, your device files and the OpenRazer database)
+    Devices {
+        /// Part of the name or product id
+        text: Option<String>,
+    },
+    /// Your device description files (*.toml / *.json) and their errors
+    DeviceFiles,
+    /// OpenRazer driver/daemon state; stop the daemon (Linux)
+    Openrazer {
+        #[arg(default_value = "status", value_parser = ["status", "stop"])]
+        action: String,
+    },
+    /// Model, firmware, features, DPI, battery
+    Info,
+    /// Show / set DPI
+    Dpi {
+        #[arg(value_parser = num_u16)]
+        x: Option<u16>,
+        #[arg(value_parser = num_u16)]
+        y: Option<u16>,
+    },
+    /// Show / set DPI stages
+    Stages {
+        #[arg(value_parser = num_u16)]
+        dpi: Vec<u16>,
+        /// Active stage (1-based)
+        #[arg(long, default_value_t = 1)]
+        active: u8,
+    },
+    /// Polling rate (125, 500, 1000 Hz)
+    Poll {
+        #[arg(value_parser = num_u32)]
+        hz: Option<u32>,
+    },
+    /// Sleep after idle, seconds (60-900)
+    Idle {
+        #[arg(value_parser = num_u16)]
+        seconds: Option<u16>,
+    },
+    /// Low power mode threshold, percent (5-100)
+    Lowbatt {
+        #[arg(value_parser = num_u8)]
+        percent: Option<u8>,
+    },
+    /// Buttons and their bindings (Naga: attached plate only)
+    Buttons {
+        /// Also list disabled buttons
+        #[arg(long)]
+        all: bool,
+        /// The Hypershift layer
+        #[arg(long)]
+        hypershift: bool,
+        /// auto | 12 | 6 | 2 | all
+        #[arg(long, default_value = "auto")]
+        plate: String,
+    },
+    /// Which side plate is attached (Naga Pro)
+    Plate,
+    /// Bind a button (see the binding kinds below)
+    Bind {
+        #[arg(value_parser = num_u8)]
+        id: u8,
+        /// off | default | mouse | key | media | macro | dpi | profile | hypershift | rawbind
+        kind: String,
+        /// Arguments of the binding
+        args: Vec<String>,
+        /// The Hypershift layer
+        #[arg(long)]
+        hypershift: bool,
+        /// mouse: double click
+        #[arg(long)]
+        double: bool,
+        /// mouse / key: repeat every MS milliseconds while held
+        #[arg(long, value_name = "MS", value_parser = num_u16)]
+        turbo: Option<u16>,
+        /// macro: once | hold | toggle | sequence
+        #[arg(long, default_value = "once", value_parser = ["once", "hold", "toggle", "sequence"])]
+        mode: String,
+        /// macro: how many times (mode once)
+        #[arg(long, default_value_t = 1)]
+        repeat: u8,
+    },
+    /// Copy bindings and DPI stages between profiles
+    CopyProfile {
+        #[arg(value_parser = num_u8)]
+        from: u8,
+        #[arg(value_parser = num_u8)]
+        to: u8,
+    },
+    /// On-board macros
+    Macro {
+        #[command(subcommand)]
+        action: Option<MacroCmd>,
+    },
+    /// Lighting: ZONE (scroll logo side left right backlight matrix | all) EFFECT [COLOUR...]
+    Light {
+        zone: String,
+        /// off | static | spectrum | wave | breath | breath2 | breathrandom | reactive | custom
+        effect: String,
+        /// Colours as RRGGBB
+        colours: Vec<String>,
+        /// Reactive afterglow 1-4
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=4))]
+        speed: u8,
+    },
+    /// Brightness of a zone (or all), percent
+    Brightness {
+        zone: String,
+        #[arg(value_parser = num_u8)]
+        percent: Option<u8>,
+    },
+    /// Back up profiles and macros to a JSON file
+    Backup {
+        file: String,
+        /// Profiles to save, e.g. 1,2,3
+        #[arg(long, default_value = "1")]
+        profiles: String,
+    },
+    /// Restore from a backup file
+    Restore { file: String },
+    /// Any command (hex), e.g.: raw 0085 --size 1
+    Raw {
+        /// Command code, hex
+        cmd: String,
+        /// Argument bytes, hex
+        bytes: Vec<String>,
+        /// Data size of the request
+        #[arg(long, value_parser = num_u8)]
+        size: Option<u8>,
+    },
+    /// Log file path and the last N lines
+    Logs {
+        #[arg(default_value_t = 40)]
+        n: usize,
+    },
+    /// Print Razer devices being plugged in / removed (Ctrl+C to stop)
+    Watch,
+    /// Windows: Razer Synapse services and programs; stop them
+    Razer {
+        #[arg(default_value = "status", value_parser = ["status", "stop", "stop-autostart"])]
+        action: String,
+    },
+    /// Linux: mouse access without root
+    InstallUdev {
+        /// Only show the rule
+        #[arg(long)]
+        print: bool,
+    },
+    /// Version and device database
+    Version,
 }
 
+#[derive(Subcommand, Debug)]
+enum MacroCmd {
+    /// List macros with their steps
+    List,
+    /// Steps of one macro
+    Read {
+        #[arg(value_parser = num_u16)]
+        id: u16,
+    },
+    /// Write a macro: write 3 "ctrl+a, 30ms, ctrl+c"
+    Write {
+        #[arg(value_parser = num_u16)]
+        id: u16,
+        text: String,
+    },
+    /// Delete a macro
+    Delete {
+        #[arg(value_parser = num_u16)]
+        id: u16,
+    },
+    /// Flash memory usage
+    Usage,
+}
+
+/// Decimal or 0x-hex number.
 fn int(s: &str) -> Result<u32, String> {
     let s = s.trim();
     let r = if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
@@ -103,30 +248,33 @@ fn int(s: &str) -> Result<u32, String> {
     r.map_err(|_| format!("bad number: {s}"))
 }
 
+fn num_u32(s: &str) -> Result<u32, String> {
+    int(s)
+}
+
+fn num_u16(s: &str) -> Result<u16, String> {
+    u16::try_from(int(s)?).map_err(|_| format!("too large: {s}"))
+}
+
+fn num_u8(s: &str) -> Result<u8, String> {
+    u8::try_from(int(s)?).map_err(|_| format!("too large: {s}"))
+}
+
 fn hexnum(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).map_err(|_| format!("bad hex number: {s}"))
 }
 
 fn main() -> ExitCode {
-    let a = Args::parse(std::env::args().skip(1).collect());
-    if a.pos.is_empty() || a.has("--help") || a.has("-h") {
-        print!("{HELP}");
-        return ExitCode::SUCCESS;
-    }
-    let level = a.val("--log-level").and_then(Level::parse).unwrap_or(Level::Debug);
-    logs::init(level, a.has("-v"), true);
+    let cli = Cli::parse();
+    let level = cli.log_level.as_deref().and_then(Level::parse).unwrap_or(Level::Debug);
+    logs::init(level, cli.verbose, true);
     logs::startup_banner("cli");
-    if let Some(m) = a.val("--openrazer") {
-        match openrzr::compat::Mode::parse(m) {
-            Some(m) => openrzr::compat::set_mode(m),
-            None => {
-                eprintln!("Error: --openrazer auto|on|off");
-                return ExitCode::from(2);
-            }
-        }
+    openrzr::caps::load_device_files();
+    if let Some(m) = cli.openrazer.as_deref().and_then(openrzr::compat::Mode::parse) {
+        openrzr::compat::set_mode(m);
     }
     openrzr::log_info!("app", "command: {}", std::env::args().skip(1).collect::<Vec<_>>().join(" "));
-    match run(&a) {
+    match run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             openrzr::log_error!("app", "{e}");
@@ -136,9 +284,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn open(a: &Args) -> Result<RazerMouse, String> {
-    let mut devs = find_devices(a.has("--mock"));
-    if a.has("--mock") {
+fn open(cli: &Cli) -> Result<RazerMouse, String> {
+    let mut devs = find_devices(cli.mock);
+    if cli.mock {
         // --mock means the emulator only: never touch a real mouse (e.g. in the build smoke test)
         devs.retain(|d| d.backend == "mock");
     }
@@ -149,17 +297,19 @@ fn e2s(e: Error) -> String {
     e.to_string()
 }
 
-fn run(a: &Args) -> Result<(), String> {
-    let cmd = a.arg(0).unwrap_or("");
-    match cmd {
-        "version" => {
+/// Commands that do not need a mouse; `Ok(false)` = not one of them.
+fn run_without_mouse(cli: &Cli) -> Result<bool, String> {
+    match &cli.cmd {
+        Cmd::Version => {
             println!("open-rzr {}", openrzr::VERSION);
-            println!("Device database: own modules + OpenRazer {} ({} models)", openrzr::devices::openrazer_db::REVISION,
-                     openrzr::devices::openrazer_db::DEVICES.len());
+            println!(
+                "Device database: own modules + OpenRazer {} ({} models)",
+                openrzr::devices::openrazer_db::REVISION,
+                openrzr::devices::openrazer_db::DEVICES.len()
+            );
             println!("Thanks to the OpenRazer community: https://openrazer.github.io");
-            return Ok(());
         }
-        "watch" => {
+        Cmd::Watch => {
             let w = openrzr::hotplug::watch(|c| println!("{} Razer device {}", openrzr::logs::timestamp(), c.code()))
                 .ok_or("USB notifications are not available on this system")?;
             println!("Watching for Razer devices, Ctrl+C to stop…");
@@ -168,39 +318,54 @@ fn run(a: &Args) -> Result<(), String> {
                 let _ = &w;
             }
         }
-        "razer" => {
-            match a.arg(1).unwrap_or("status") {
-                "stop" | "stop-autostart" => {
-                    let saved = openrzr::synapse::stop(a.arg(1) == Some("stop-autostart")).map_err(e2s)?;
-                    println!("Stopped. To start them again:");
-                    for (name, start) in saved {
-                        if !start.is_empty() {
-                            println!("  sc config \"{name}\" start= {start}");
-                        }
-                        println!("  sc start \"{name}\"");
+        Cmd::Razer { action } => match action.as_str() {
+            "stop" | "stop-autostart" => {
+                let saved = openrzr::synapse::stop(action == "stop-autostart").map_err(e2s)?;
+                println!("Stopped. To start them again:");
+                for (name, start) in saved {
+                    if !start.is_empty() {
+                        println!("  sc config \"{name}\" start= {start}");
                     }
-                }
-                _ => {
-                    let sw = openrzr::synapse::scan();
-                    if !sw.supported_os {
-                        println!("Razer Synapse exists only on Windows.");
-                        return Ok(());
-                    }
-                    for s in &sw.services {
-                        println!("service  {:<36} {:<10} start: {}", s.name, if s.running { "running" } else { "stopped" }, s.start);
-                    }
-                    for p in &sw.processes {
-                        println!("program  {p}");
-                    }
-                    if !sw.active() {
-                        println!("Nothing of Razer is running.");
-                    }
+                    println!("  sc start \"{name}\"");
                 }
             }
-            return Ok(());
+            _ => {
+                let sw = openrzr::synapse::scan();
+                if !sw.supported_os {
+                    println!("Razer Synapse exists only on Windows.");
+                    return Ok(true);
+                }
+                for s in &sw.services {
+                    println!("service  {:<36} {:<10} start: {}", s.name, if s.running { "running" } else { "stopped" }, s.start);
+                }
+                for p in &sw.processes {
+                    println!("program  {p}");
+                }
+                if !sw.active() {
+                    println!("Nothing of Razer is running.");
+                }
+            }
+        },
+        Cmd::DeviceFiles => {
+            let dir = openrzr::devices::external::folder(&logs::config_dir());
+            println!("Folder: {}", dir.display());
+            let device_files = openrzr::devices::external::load_dir(&dir);
+            if device_files.is_empty() {
+                println!("No *.toml / *.json files.");
+            }
+            for l in &device_files {
+                if l.error.is_empty() {
+                    println!("OK     {}  0x{:04x} {} (based on {})", l.file, l.pid, l.name, l.base);
+                } else {
+                    println!("ERROR  {}  {}", l.file, l.error);
+                }
+                for w in &l.warnings {
+                    println!("       warning: {w}");
+                }
+            }
         }
-        "devices" => {
-            let q = a.arg(1).unwrap_or("").to_lowercase();
+        Cmd::Devices { text } => {
+            let q = text.as_deref().unwrap_or("").to_lowercase();
             for d in openrzr::devices::all() {
                 if !q.is_empty() && !d.name.to_lowercase().contains(&q) && !format!("{:04x}", d.pid).contains(&q) {
                     continue;
@@ -210,6 +375,7 @@ fn run(a: &Args) -> Result<(), String> {
                     openrzr::devices::Source::Family => "Naga Pro family",
                     openrzr::devices::Source::OpenRazer if openrzr::devices::generic::may_have_onboard(d.transaction_id) => "OpenRazer+probe",
                     openrzr::devices::Source::OpenRazer => "OpenRazer",
+                    openrzr::devices::Source::User => "file",
                 };
                 println!("{:04x}  {:<52} {:<9} direct: {}", d.pid, d.name, src, openrzr::feat::names(d.direct).join(" "));
                 let extra = d.openrazer & !d.direct;
@@ -217,61 +383,58 @@ fn run(a: &Args) -> Result<(), String> {
                     println!("{:61}+ via OpenRazer driver: {}", "", openrzr::feat::names(extra).join(" "));
                 }
             }
-            return Ok(());
         }
-        "openrazer" => {
-            match a.arg(1).unwrap_or("status") {
-                "stop" => {
-                    openrzr::compat::stop_daemon().map_err(e2s)?;
-                    println!("OpenRazer daemon stopped.");
-                }
-                _ => {
-                    let st = openrzr::compat::status();
-                    println!("OpenRazer driver:   {}", if st.driver_loaded { "loaded" } else if st.supported_os { "not loaded" } else { "Linux only" });
-                    println!("OpenRazer daemon:   {}", if st.daemon_running { "running" } else { "not running" });
-                    println!("Compatibility mode: {}", st.mode);
-                    for (pid, dir) in &st.bound {
-                        let name = openrzr::devices::spec_for(*pid).map(|s| s.name).unwrap_or("?");
-                        println!("  {pid:04x} {name}: {dir}");
-                    }
+        Cmd::Openrazer { action } => {
+            if action == "stop" {
+                openrzr::compat::stop_daemon().map_err(e2s)?;
+                println!("OpenRazer daemon stopped.");
+            } else {
+                let st = openrzr::compat::status();
+                println!("OpenRazer driver:   {}", if st.driver_loaded { "loaded" } else if st.supported_os { "not loaded" } else { "Linux only" });
+                println!("OpenRazer daemon:   {}", if st.daemon_running { "running" } else { "not running" });
+                println!("Compatibility mode: {}", st.mode);
+                for (pid, dir) in &st.bound {
+                    let name = openrzr::devices::spec_for(*pid).map(|s| s.name).unwrap_or("?");
+                    println!("  {pid:04x} {name}: {dir}");
                 }
             }
-            return Ok(());
         }
-        "install-udev" => {
-            if a.has("--print") {
+        Cmd::InstallUdev { print } => {
+            if *print {
                 print!("{}", udev::rule_text());
-                return Ok(());
+            } else {
+                udev::install(false)?;
+                println!("Rule written to {}. Re-plug the mouse or receiver.", udev::RULE_PATH);
             }
-            udev::install(false)?;
-            println!("Rule written to {}. Re-plug the mouse or receiver.", udev::RULE_PATH);
-            return Ok(());
         }
-        "logs" => {
-            let n = a.arg(1).map(int).transpose()?.unwrap_or(40) as usize;
+        Cmd::Logs { n } => {
             println!("Log: {}", logs::log_file().display());
-            for l in logs::tail(n) {
+            for l in logs::tail(*n) {
                 println!("{l}");
             }
-            return Ok(());
         }
-        "list" => {
-            let devs = find_devices(a.has("--mock"));
+        Cmd::List => {
+            let devs = find_devices(cli.mock);
             if devs.is_empty() {
                 println!("No Razer devices found.");
             }
             for d in devs {
                 println!("{:<60} {}", d.label(), d.path);
             }
-            return Ok(());
         }
-        _ => {}
+        _ => return Ok(false),
     }
-    let mut m = open(a)?;
-    let profile: u8 = a.num("--profile", 1)?;
-    let hs = a.has("--hypershift");
-    match cmd {
-        "info" => {
+    Ok(true)
+}
+
+fn run(cli: &Cli) -> Result<(), String> {
+    if run_without_mouse(cli)? {
+        return Ok(());
+    }
+    let mut m = open(cli)?;
+    let profile = cli.profile;
+    match &cli.cmd {
+        Cmd::Info => {
             use openrzr::feat;
             println!("Device:      {}", m.name());
             println!(
@@ -280,6 +443,7 @@ fn run(a: &Args) -> Result<(), String> {
                     openrzr::devices::Source::Verified => "tested",
                     openrzr::devices::Source::Family => "Naga Pro family (not tested on this model)",
                     openrzr::devices::Source::OpenRazer => "OpenRazer database (not tested by open-rzr)",
+                    openrzr::devices::Source::User => "your description file (devices folder)",
                 }
             );
             if m.experimental != 0 {
@@ -310,131 +474,119 @@ fn run(a: &Args) -> Result<(), String> {
             }
             println!("Profiles:    {:?}", m.list_profiles());
         }
-        "dpi" => {
-            if let Some(x) = a.arg(1) {
-                let x = int(x)? as u16;
-                let y = a.arg(2).map(int).transpose()?.map(|v| v as u16).unwrap_or(x);
-                m.set_dpi(x, y).map_err(e2s)?;
+        Cmd::Dpi { x, y } => {
+            if let Some(x) = *x {
+                m.set_dpi(x, y.unwrap_or(x)).map_err(e2s)?;
             }
             let (x, y) = m.get_dpi().map_err(e2s)?;
             println!("DPI: {x}x{y}");
         }
-        "stages" => {
-            if a.pos.len() > 1 {
-                let st: Vec<(u16, u16)> = a.pos[1..].iter().map(|s| int(s).map(|v| (v as u16, v as u16))).collect::<Result<_, _>>()?;
-                m.set_dpi_stages(&st, a.num("--active", 1)?, profile).map_err(e2s)?;
+        Cmd::Stages { dpi, active } => {
+            if !dpi.is_empty() {
+                let st: Vec<(u16, u16)> = dpi.iter().map(|v| (*v, *v)).collect();
+                m.set_dpi_stages(&st, *active, profile).map_err(e2s)?;
             }
             let st = m.get_dpi_stages(profile).map_err(e2s)?;
             for (i, (x, y)) in st.stages.iter().enumerate() {
                 println!("{} {}: {x}x{y}", if i + 1 == st.active as usize { "*" } else { " " }, i + 1);
             }
         }
-        "poll" => {
-            if let Some(hz) = a.arg(1) {
-                m.set_polling_rate(int(hz)?).map_err(e2s)?;
+        Cmd::Poll { hz } => {
+            if let Some(hz) = *hz {
+                m.set_polling_rate(hz).map_err(e2s)?;
             }
             println!("Polling rate: {} Hz", m.get_polling_rate().map_err(e2s)?);
         }
-        "idle" => {
-            if let Some(s) = a.arg(1) {
-                m.set_idle_time(int(s)? as u16).map_err(e2s)?;
+        Cmd::Idle { seconds } => {
+            if let Some(s) = *seconds {
+                m.set_idle_time(s).map_err(e2s)?;
             }
             println!("Sleep after {} s", m.get_idle_time().map_err(e2s)?);
         }
-        "lowbatt" => {
-            if let Some(p) = a.arg(1) {
-                m.set_low_battery_threshold(int(p)? as u8).map_err(e2s)?;
+        Cmd::Lowbatt { percent } => {
+            if let Some(p) = *percent {
+                m.set_low_battery_threshold(p).map_err(e2s)?;
             }
             println!("Low power mode below: {}%", m.get_low_battery_threshold().map_err(e2s)?);
         }
-        "plate" => match m.side_plate().map_err(e2s)? {
+        Cmd::Plate => match m.side_plate().map_err(e2s)? {
             None => println!("This mouse has no swappable side plates"),
             Some(0) => println!("No side plate attached"),
             Some(p) => println!("Side plate: {p} buttons"),
         },
-        "buttons" => {
-            let want = a.val("--plate").unwrap_or("auto");
-            let plate: Option<u8> = match want {
+        Cmd::Buttons { all, hypershift, plate } => {
+            let plate: Option<u8> = match plate.as_str() {
                 "all" => None,
                 "auto" => match m.side_plate() {
                     Ok(Some(p)) if p > 0 => Some(p),
                     _ => None,
                 },
-                n => Some(int(n)? as u8),
+                n => Some(num_u8(n)?),
             };
             if let Some(p) = plate {
                 println!("Side plate: {p} buttons (all plates: --plate all)");
             }
-            for b in m.scan_buttons(profile, hs, a.has("--all")).map_err(e2s)? {
+            for b in m.scan_buttons(profile, *hypershift, *all).map_err(e2s)? {
                 if plate.is_some_and(|p| !openrzr::devices::button_on_plate(b.id, p)) {
                     continue;
                 }
                 println!("0x{:02x}  {:<28} {}", b.id, b.name, b.action.describe());
             }
         }
-        "bind" => {
-            let id = int(a.arg(1).ok_or("button ID required")?)? as u8;
-            let kind = a.arg(2).ok_or("action kind required")?;
+        Cmd::Bind { id, kind, args, hypershift, double, turbo, mode, repeat } => {
             let act = if kind == "default" {
-                m.default_action(id).ok_or("no factory default known for this button")?
+                m.default_action(*id).ok_or("no factory default known for this button")?
             } else {
-                build_action(kind, &a.pos[3..], a)?
+                build_action(kind, args, BindOpts { double: *double, turbo: turbo.unwrap_or(0), mode, repeat: *repeat })?
             };
-            m.set_button(id, &act, profile, hs).map_err(e2s)?;
-            println!("0x{id:02x} -> {}", m.get_button(id, profile, hs).map_err(e2s)?.describe());
+            m.set_button(*id, &act, profile, *hypershift).map_err(e2s)?;
+            println!("0x{id:02x} -> {}", m.get_button(*id, profile, *hypershift).map_err(e2s)?.describe());
         }
-        "copy-profile" => {
-            let from = int(a.arg(1).ok_or("FROM")?)? as u8;
-            let to = int(a.arg(2).ok_or("TO")?)? as u8;
-            let n = m.copy_profile(from, to).map_err(e2s)?;
+        Cmd::CopyProfile { from, to } => {
+            let n = m.copy_profile(*from, *to).map_err(e2s)?;
             println!("Profile {from} -> {to}: {n} bindings copied");
         }
-        "macro" => match a.arg(1).unwrap_or("list") {
-            "list" => {
+        Cmd::Macro { action } => match action.as_ref().unwrap_or(&MacroCmd::List) {
+            MacroCmd::List => {
                 for id in m.macro_ids().map_err(e2s)? {
                     let s: Vec<String> = m.read_macro(id).map_err(e2s)?.iter().map(|s| s.describe()).collect();
                     println!("#{id}: {}", s.join(", "));
                 }
             }
-            "read" => {
-                let id = int(a.arg(2).ok_or("ID required")?)? as u16;
-                for s in m.read_macro(id).map_err(e2s)? {
+            MacroCmd::Read { id } => {
+                for s in m.read_macro(*id).map_err(e2s)? {
                     println!("{}", s.describe());
                 }
             }
-            "write" => {
-                let id = int(a.arg(2).ok_or("ID required")?)? as u16;
-                let steps = macros::from_text(a.arg(3).ok_or("macro text required")?)?;
-                let n = m.write_macro(id, &steps).map_err(e2s)?;
+            MacroCmd::Write { id, text } => {
+                let steps = macros::from_text(text)?;
+                let n = m.write_macro(*id, &steps).map_err(e2s)?;
                 println!("Macro #{id} written ({n} bytes)");
             }
-            "delete" => {
-                let id = int(a.arg(2).ok_or("ID required")?)? as u16;
-                m.delete_macro(id).map_err(e2s)?;
+            MacroCmd::Delete { id } => {
+                m.delete_macro(*id).map_err(e2s)?;
                 println!("Macro #{id} deleted");
             }
-            "usage" => {
+            MacroCmd::Usage => {
                 let (t, f, r) = m.flash_usage().map_err(e2s)?;
                 println!("Flash: total {t} B, free {f} B, reclaimable {r} B");
             }
-            x => return Err(format!("macro {x}: unknown action")),
         },
-        "light" => {
-            let zone = a.arg(1).ok_or("zone: scroll|logo|side|all")?;
-            let eff = match a.arg(2).ok_or("effect required")? {
+        Cmd::Light { zone, effect, colours, speed } => {
+            let eff = match effect.as_str() {
                 "breath" => "breath_single",
                 "breath2" => "breath_dual",
                 "breathrandom" => "breath_random",
                 e => e,
             };
-            let cols: Vec<lighting::Rgb> = a.pos[3..].iter().map(|c| lighting::parse_color(c)).collect::<Result<_, _>>()?;
-            let mut st = ZoneState { effect: eff.into(), speed: a.num("--speed", 2)?, ..Default::default() };
-            if let Some(c) = cols.first() {
-                st.color1 = *c;
+            let cols: Vec<lighting::Rgb> = colours.iter().map(|c| lighting::parse_color(c)).collect::<Result<_, _>>()?;
+            let mut st = ZoneState { effect: eff.into(), speed: *speed, ..Default::default() };
+            if let (Some(first), Some(last)) = (cols.first(), cols.last()) {
+                st.color1 = *first;
                 st.color2 = *cols.get(1).unwrap_or(&st.color2);
-                st.leds = (0..lighting::SIDE_LEDS).map(|i| *cols.get(i).unwrap_or(cols.last().unwrap())).collect();
+                st.leds = (0..lighting::SIDE_LEDS).map(|i| *cols.get(i).unwrap_or(last)).collect();
             }
-            let zones: Vec<&str> = if zone == "all" { m.zones.iter().map(|z| z.id).collect() } else { vec![zone] };
+            let zones: Vec<&str> = if zone == "all" { m.zones.iter().map(|z| z.id).collect() } else { vec![zone.as_str()] };
             for z in zones {
                 if !m.zone_effects(z).contains(&eff) {
                     println!("{}: effect \"{}\" not supported, skipped", lighting::zone_name(z), lighting::effect_name(eff));
@@ -444,74 +596,88 @@ fn run(a: &Args) -> Result<(), String> {
                 println!("{}: {}", lighting::zone_name(z), lighting::effect_name(eff));
             }
         }
-        "brightness" => {
-            let zone = a.arg(1).ok_or("zone: scroll|logo|side|left|right|backlight|matrix|all")?;
-            let zones: Vec<&str> = if zone == "all" { m.zones.iter().map(|z| z.id).collect() } else { vec![zone] };
+        Cmd::Brightness { zone, percent } => {
+            let zones: Vec<&str> = if zone == "all" { m.zones.iter().map(|z| z.id).collect() } else { vec![zone.as_str()] };
             for z in zones {
-                if let Some(p) = a.arg(2) {
-                    m.set_brightness(z, int(p)? as u8).map_err(e2s)?;
+                if let Some(p) = *percent {
+                    m.set_brightness(z, p).map_err(e2s)?;
                 }
                 println!("{}: brightness {}%", lighting::zone_name(z), m.get_brightness(z).map_err(e2s)?);
             }
         }
-        "backup" | "restore" => backup_restore(cmd, &mut m, a)?,
-        "raw" => {
-            let c = hexnum(a.arg(1).ok_or("command code required")?)? as u16;
-            let bytes: Vec<u8> = a.pos[2..].iter().map(|b| hexnum(b).map(|v| v as u8)).collect::<Result<_, _>>()?;
-            let size = a.val("--size").map(int).transpose()?.map(|v| v as u8);
-            let mut ch_args = bytes.clone();
-            ch_args.truncate(80);
-            let r = m.req(c, &ch_args, size).map_err(e2s)?;
+        Cmd::Backup { file, profiles } => backup(&mut m, file, profiles)?,
+        Cmd::Restore { file } => restore(&mut m, file)?,
+        Cmd::Raw { cmd, bytes, size } => {
+            let c = u16::try_from(hexnum(cmd)?).map_err(|_| format!("command code too large: {cmd}"))?;
+            let mut args: Vec<u8> = bytes.iter().map(|b| hexnum(b).map(|v| v as u8)).collect::<Result<_, _>>()?;
+            args.truncate(80);
+            let r = m.req(c, &args, *size).map_err(e2s)?;
             let n = size.unwrap_or(16).max(1) as usize;
             println!("OK args={}", r[..n.min(80)].iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "));
         }
-        x => return Err(format!("unknown command {x}. Help: open-rzr-cli --help")),
+        // handled in run_without_mouse
+        _ => {}
     }
     Ok(())
 }
 
 #[cfg(feature = "json")]
-fn backup_restore(cmd: &str, m: &mut RazerMouse, a: &Args) -> Result<(), String> {
-    let file = a.arg(1).ok_or("file required")?;
-    if cmd == "backup" {
-        let profiles: Vec<u8> = a
-            .val("--profiles")
-            .unwrap_or("1")
-            .split(',')
-            .map(|p| int(p).map(|v| v as u8))
-            .collect::<Result<_, _>>()?;
-        let b = m.backup(&profiles).map_err(e2s)?;
-        let json = serde_json::to_string_pretty(&b).map_err(|e| e.to_string())?;
-        std::fs::write(file, json).map_err(|e| format!("{file}: {e}"))?;
-        println!("Saved: {file} (profiles {profiles:?}, macros {})", b.macros.len());
-    } else {
-        let s = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
-        let b: openrzr::Backup = serde_json::from_str(&s).map_err(|e| format!("{file}: {e}"))?;
-        println!("Records restored: {}", m.restore(&b).map_err(e2s)?);
-    }
+fn backup(m: &mut RazerMouse, file: &str, profiles: &str) -> Result<(), String> {
+    let profiles: Vec<u8> = profiles.split(',').map(num_u8).collect::<Result<_, _>>()?;
+    let b = m.backup(&profiles).map_err(e2s)?;
+    let json = serde_json::to_string_pretty(&b).map_err(|e| e.to_string())?;
+    std::fs::write(file, json).map_err(|e| format!("{file}: {e}"))?;
+    println!("Saved: {file} (profiles {profiles:?}, macros {})", b.macros.len());
+    Ok(())
+}
+
+#[cfg(feature = "json")]
+fn restore(m: &mut RazerMouse, file: &str) -> Result<(), String> {
+    let s = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let b: openrzr::Backup = serde_json::from_str(&s).map_err(|e| format!("{file}: {e}"))?;
+    println!("Records restored: {}", m.restore(&b).map_err(e2s)?);
     Ok(())
 }
 
 #[cfg(not(feature = "json"))]
-fn backup_restore(_: &str, _: &mut RazerMouse, _: &Args) -> Result<(), String> {
+fn backup(_: &mut RazerMouse, _: &str, _: &str) -> Result<(), String> {
     Err("built without JSON support (feature json)".into())
 }
 
-fn build_action(kind: &str, args: &[String], a: &Args) -> Result<Action, String> {
+#[cfg(not(feature = "json"))]
+fn restore(_: &mut RazerMouse, _: &str) -> Result<(), String> {
+    Err("built without JSON support (feature json)".into())
+}
+
+/// Options of `bind` that apply to some kinds.
+struct BindOpts<'a> {
+    double: bool,
+    turbo: u16,
+    mode: &'a str,
+    repeat: u8,
+}
+
+fn build_action(kind: &str, args: &[String], o: BindOpts) -> Result<Action, String> {
     let first = args.first().map(String::as_str).unwrap_or("");
-    let turbo: u16 = a.num("--turbo", 0)?;
     Ok(match kind {
         "off" => Action::kind("disabled"),
         "default" => return Err("use: bind ID default".into()),
         "mouse" => {
             let b = match first.to_ascii_lowercase().as_str() {
-                "left" => 1, "right" => 2, "middle" => 3, "back" => 4, "forward" => 5,
-                "wheelup" => 9, "wheeldown" => 10, "wheelleft" => 0x68, "wheelright" => 0x69,
+                "left" => 1,
+                "right" => 2,
+                "middle" => 3,
+                "back" => 4,
+                "forward" => 5,
+                "wheelup" => 9,
+                "wheeldown" => 10,
+                "wheelleft" => 0x68,
+                "wheelright" => 0x69,
                 x => return Err(format!("mouse button: {x}")),
             };
-            if turbo > 0 {
-                Action { kind: "mouse_turbo".into(), button: b, interval: turbo, ..Default::default() }
-            } else if a.has("--double") {
+            if o.turbo > 0 {
+                Action { kind: "mouse_turbo".into(), button: b, interval: o.turbo, ..Default::default() }
+            } else if o.double {
                 Action { kind: "double_click".into(), button: b, ..Default::default() }
             } else {
                 Action::mouse(b)
@@ -519,34 +685,50 @@ fn build_action(kind: &str, args: &[String], a: &Args) -> Result<Action, String>
         }
         "key" => {
             let (mods, key) = hidkeys::parse_combo(first)?;
-            if turbo > 0 {
-                Action { kind: "keyboard_turbo".into(), modifiers: mods, key, interval: turbo, ..Default::default() }
+            if o.turbo > 0 {
+                Action { kind: "keyboard_turbo".into(), modifiers: mods, key, interval: o.turbo, ..Default::default() }
             } else {
                 Action::keyboard(mods, key)
             }
         }
         "media" => {
             let code = match first.to_ascii_lowercase().as_str() {
-                "volup" => 0xE9, "voldown" => 0xEA, "mute" => 0xE2, "play" => 0xCD,
-                "next" => 0xB5, "prev" => 0xB6, x => int(x)? as u16,
+                "volup" => 0xE9,
+                "voldown" => 0xEA,
+                "mute" => 0xE2,
+                "play" => 0xCD,
+                "next" => 0xB5,
+                "prev" => 0xB6,
+                x => num_u16(x)?,
             };
             Action { kind: "consumer".into(), code, ..Default::default() }
         }
         "macro" => Action {
             kind: "macro".into(),
-            macro_id: int(first)? as u16,
-            macro_mode: a.val("--mode").unwrap_or("once").into(),
-            repeat: a.num("--repeat", 1)?,
+            macro_id: num_u16(first)?,
+            macro_mode: o.mode.into(),
+            repeat: o.repeat,
             ..Default::default()
         },
         "dpi" => match first {
-            "stage" => Action { kind: "dpi".into(), code: DPI_FIXED as u16, stage: int(args.get(1).ok_or("stage number")?)? as u8, ..Default::default() },
+            "stage" => Action {
+                kind: "dpi".into(),
+                code: DPI_FIXED as u16,
+                stage: num_u8(args.get(1).ok_or("stage number")?)?,
+                ..Default::default()
+            },
             "aim" => {
-                let v = int(args.get(1).ok_or("sniper DPI")?)? as u16;
+                let v = num_u16(args.get(1).ok_or("sniper DPI")?)?;
                 Action { kind: "dpi".into(), code: DPI_AIM as u16, dpi_x: v, dpi_y: v, ..Default::default() }
             }
             op => {
-                let code = match op { "next" => 1, "prev" => 2, "cycle" => 6, "cycleback" => 7, x => return Err(format!("dpi {x}")) };
+                let code = match op {
+                    "next" => 1,
+                    "prev" => 2,
+                    "cycle" => 6,
+                    "cycleback" => 7,
+                    x => return Err(format!("dpi {x}")),
+                };
                 Action { kind: "dpi".into(), code, ..Default::default() }
             }
         },
@@ -555,14 +737,66 @@ fn build_action(kind: &str, args: &[String], a: &Args) -> Result<Action, String>
             "prev" => Action { kind: "profile".into(), code: 2, ..Default::default() },
             "cycle" => Action { kind: "profile".into(), code: 4, ..Default::default() },
             "cycleback" => Action { kind: "profile".into(), code: 5, ..Default::default() },
-            n => Action { kind: "profile".into(), code: PROFILE_FIXED as u16, profile: int(n)? as u8, ..Default::default() },
+            n => Action { kind: "profile".into(), code: PROFILE_FIXED as u16, profile: num_u8(n)?, ..Default::default() },
         },
         "hypershift" => Action::kind("hypershift"),
         "rawbind" => {
             let hex: String = args.concat();
-            let raw = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)).collect::<Result<Vec<_>, _>>().map_err(|_| "hex")?;
+            let raw = (0..hex.len() / 2)
+                .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "rawbind: hex bytes expected")?;
             Action { kind: "raw".into(), raw, ..Default::default() }
         }
         x => return Err(format!("unknown action kind {x}")),
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn old_command_lines_still_parse() {
+        let p = |s: &str| Cli::try_parse_from(std::iter::once("open-rzr-cli").chain(s.split_whitespace()));
+        let c = p("--profile 2 bind 0x41 mouse back").unwrap();
+        assert_eq!(c.profile, 2);
+        assert!(matches!(c.cmd, Cmd::Bind { id: 0x41, ref kind, .. } if kind == "mouse"));
+        let c = p("bind 0x40 key ctrl+shift+c --turbo 50 --hypershift").unwrap();
+        assert!(matches!(c.cmd, Cmd::Bind { turbo: Some(50), hypershift: true, .. }));
+        let c = p("stages 800 1600 3200 --active 2").unwrap();
+        assert!(matches!(c.cmd, Cmd::Stages { ref dpi, active: 2 } if dpi == &[800, 1600, 3200]));
+        assert!(matches!(p("-v raw 0085 --size 1").unwrap().cmd, Cmd::Raw { size: Some(1), .. }));
+        assert!(matches!(p("info --mock").unwrap(), Cli { mock: true, cmd: Cmd::Info, .. }));
+        assert!(matches!(p("macro").unwrap().cmd, Cmd::Macro { action: None }));
+        assert!(matches!(p("macro read 0x10").unwrap().cmd, Cmd::Macro { action: Some(MacroCmd::Read { id: 16 }) }));
+        assert!(matches!(p("light all static 00ff80").unwrap().cmd, Cmd::Light { speed: 2, .. }));
+        assert!(matches!(p("backup naga.json --profiles 1,2,3").unwrap().cmd, Cmd::Backup { .. }));
+        assert!(matches!(p("copy-profile 1 2").unwrap().cmd, Cmd::CopyProfile { from: 1, to: 2 }));
+        assert!(matches!(p("device-files").unwrap().cmd, Cmd::DeviceFiles));
+        assert!(matches!(p("install-udev --print").unwrap().cmd, Cmd::InstallUdev { print: true }));
+        assert!(matches!(p("razer stop-autostart").unwrap().cmd, Cmd::Razer { .. }));
+        // errors are caught by the parser
+        assert!(p("--profile 9 info").is_err());
+        assert!(p("dpi abc").is_err());
+        assert!(p("razer launch").is_err());
+        assert!(p("light logo static --speed 7").is_err());
+    }
+
+    #[test]
+    fn actions() {
+        let o = || BindOpts { double: false, turbo: 0, mode: "once", repeat: 1 };
+        assert_eq!(build_action("mouse", &["back".into()], o()).unwrap().button, 4);
+        let t = build_action("key", &["a".into()], BindOpts { turbo: 50, ..o() }).unwrap();
+        assert_eq!((t.kind.as_str(), t.interval), ("keyboard_turbo", 50));
+        assert_eq!(build_action("dpi", &["aim".into(), "400".into()], o()).unwrap().dpi_x, 400);
+        assert!(build_action("rawbind", &["0g".into()], o()).is_err());
+    }
 }

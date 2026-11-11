@@ -1,10 +1,10 @@
 [workspace]
-members = ["crates/rzr-protocol", "crates/rzr-hal", "crates/rzr-core", "crates/rzr-cli", "app", "tools/openrazer-import"]
-default-members = ["crates/rzr-protocol", "crates/rzr-hal", "crates/rzr-core", "crates/rzr-cli", "app"]
+members = ["crates/rzr-protocol", "crates/rzr-hal", "crates/rzr-devices", "crates/rzr-core", "crates/rzr-cli", "app", "tools/openrazer-import"]
+default-members = ["crates/rzr-protocol", "crates/rzr-hal", "crates/rzr-devices", "crates/rzr-core", "crates/rzr-cli", "app"]
 resolver = "2"
 
 [workspace.package]
-version = "0.6.2"
+version = "0.6.9"
 edition = "2021"
 license = "MIT"
 authors = ["Sergei Aspidov"]

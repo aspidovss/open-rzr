@@ -4,18 +4,31 @@
 //! * `openrazer_db.rs` — generated from the OpenRazer project (tools/openrazer-import): every mouse
 //!   OpenRazer knows, with the features open-rzr can use directly and through the OpenRazer driver.
 //!
-//! A hand-written module always wins over the generated entry with the same product id.
-//! To add a mouse properly: copy `naga_pro.rs`, describe the model and add it to `MODULES`.
+//! * `external.rs`     — descriptions from `*.toml` / `*.json` files in the config folder
+//!   (new models without recompiling), starting from an OpenRazer entry or a known model.
+//!
+//! Order: hand-written module → file → OpenRazer database (a file with `override = true` goes
+//! before the module). To add a mouse properly: copy `naga_pro.rs`, describe the model and add it
+//! to `MODULES`.
+//!
+//! Also here: `bindings` (button actions as the mouse stores them) and `hidkeys` (key names).
+
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 use crate::bindings::Action;
 
+pub mod bindings;
+pub mod conf;
+pub mod external;
 pub mod generic;
+pub mod hidkeys;
 pub mod naga_pro;
 pub mod openrazer_db;
 
 pub use naga_pro::{button_on_plate, plate_from_code, plate_of, side_plate_name, COMMON_BUTTONS, PLATES};
 
-pub const RAZER_VID: u16 = rzr_hal::RAZER_VID;
+/// USB vendor id of Razer (same as `rzr_hal::RAZER_VID`).
+pub const RAZER_VID: u16 = 0x1532;
 
 /// Where a device description comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +39,8 @@ pub enum Source {
     OpenRazer,
     /// Hand-written from a tested sibling (same protocol, same buttons), not tested itself.
     Family,
+    /// From a description file of the user (`external.rs`).
+    User,
 }
 
 impl Source {
@@ -34,6 +49,7 @@ impl Source {
             Source::Verified => "verified",
             Source::OpenRazer => "openrazer",
             Source::Family => "family",
+            Source::User => "user",
         }
     }
 }
@@ -190,18 +206,27 @@ impl DeviceSpec {
     }
 }
 
-/// Description of a product id: own module first, then OpenRazer.
+/// Description of a product id: own module, description file, OpenRazer database.
 pub fn spec_for(pid: u16) -> Option<&'static DeviceSpec> {
+    if external::overrides(pid) {
+        return external::find(pid);
+    }
     MODULES
         .iter()
         .flat_map(|m| m.iter())
         .find(|d| d.pid == pid)
+        .or_else(|| external::find(pid))
         .or_else(|| openrazer_db::DEVICES.iter().find(|d| d.pid == pid))
 }
 
-/// Every known device, one entry per product id (own modules win).
+/// Every known device, one entry per product id (in the order of `spec_for`).
 pub fn all() -> Vec<&'static DeviceSpec> {
-    let mut v: Vec<&'static DeviceSpec> = MODULES.iter().flat_map(|m| m.iter()).collect();
+    let mut v: Vec<&'static DeviceSpec> = external::all().into_iter().filter(|d| external::overrides(d.pid)).collect();
+    for d in MODULES.iter().flat_map(|m| m.iter()).chain(external::all()) {
+        if !v.iter().any(|x| x.pid == d.pid) {
+            v.push(d);
+        }
+    }
     for d in openrazer_db::DEVICES {
         if !v.iter().any(|x| x.pid == d.pid) {
             v.push(d);
@@ -226,6 +251,7 @@ pub fn default_action(id: u8) -> Option<Action> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

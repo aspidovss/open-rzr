@@ -50,6 +50,19 @@ impl RazerMouse {
 
     /// Write `p` into slot `slot` (0 = temporary layer). With `previous` (what the slot holds now)
     /// only the differences are written. Returns the number of records written.
+    /// A malformed record the program does not understand is skipped (with a warning) instead of
+    /// stopping the whole profile; anything else is an error as usual. `Ok(true)` = written.
+    fn set_button_or_skip(&mut self, id: u8, action: &crate::bindings::Action, slot: u8, hypershift: bool) -> Result<bool> {
+        match self.set_button(id, action, slot, hypershift) {
+            Ok(()) => Ok(true),
+            Err(Error::Invalid(e)) if action.kind == "raw" => {
+                log_warn!("device", "{e}");
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn write_profile(&mut self, p: &Profile, slot: u8, previous: Option<&Profile>) -> Result<usize> {
         self.need(feat::BUTTONS)?;
         let t0 = Instant::now();
@@ -69,13 +82,11 @@ impl RazerMouse {
         for (k, pair) in &p.buttons {
             let id = parse_key(k).ok_or_else(|| Error::Invalid(format!("button id {k}")))?;
             let old = previous.and_then(|q| q.buttons.get(k));
-            if old.map(|o| o.normal != pair.normal).unwrap_or(true) {
-                self.set_button(id, &pair.normal, slot, false)?;
+            if old.map(|o| o.normal != pair.normal).unwrap_or(true) && self.set_button_or_skip(id, &pair.normal, slot, false)? {
                 n += 1;
             }
             if let Some(h) = &pair.hypershift {
-                if old.map(|o| o.hypershift.as_ref() != Some(h)).unwrap_or(true) {
-                    self.set_button(id, h, slot, true)?;
+                if old.map(|o| o.hypershift.as_ref() != Some(h)).unwrap_or(true) && self.set_button_or_skip(id, h, slot, true)? {
                     n += 1;
                 }
             }

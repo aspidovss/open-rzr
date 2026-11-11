@@ -4,6 +4,8 @@
 //! code); it talks to the mouse through openrzr directly, so it needs no OpenRazer daemon and works on
 //! Windows too. Buttons, macros and profiles stay in `open-rzr-cli`.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;

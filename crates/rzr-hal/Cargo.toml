@@ -16,6 +16,7 @@ json = ["dep:serde"]
 
 [dependencies]
 rzr-protocol = { path = "../rzr-protocol" }
+thiserror = "2"
 serde = { version = "1", features = ["derive"], optional = true }
 
 [target.'cfg(windows)'.dependencies]

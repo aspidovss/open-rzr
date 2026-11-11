@@ -17,6 +17,7 @@ path = "src/orzr.rs"
 
 [dependencies]
 rzr-core = { path = "../rzr-core" }
+clap = { version = "4.5", features = ["derive"] }
 serde_json = { version = "1", optional = true }
 
 [features]

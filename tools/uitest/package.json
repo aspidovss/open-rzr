@@ -1,0 +1,14 @@
+{
+  "name": "open-rzr-uitest",
+  "private": true,
+  "description": "Tests of the open-rzr window against a mock of the Rust side (no mouse, no Tauri)",
+  "scripts": {
+    "build": "node build.js",
+    "i18n": "node i18n-check.js",
+    "smoke": "node build.js && node smoke.js",
+    "test": "node build.js && node i18n-check.js && node smoke.js"
+  },
+  "devDependencies": {
+    "playwright": "1.48.2"
+  }
+}

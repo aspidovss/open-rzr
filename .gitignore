@@ -2,3 +2,10 @@
 /app/gen/
 /dist/
 *.log
+# window tests (tools/uitest)
+/ui/test.html
+/tools/uitest/sigs.js
+/tools/uitest/shots/
+/tools/uitest/node_modules/
+# left over from the old Python version
+*.egg-info/

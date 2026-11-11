@@ -329,7 +329,7 @@ mod imp {
                     let path = PathBuf::from("/dev/input").join(n);
                     match std::fs::File::open(&path) {
                         Ok(mut f) => {
-                            open.lock().unwrap().insert(n.clone());
+                            open.lock().unwrap_or_else(|e| e.into_inner()).insert(n.clone());
                             log_info!("app", "listening for macro trigger keys on {}", path.display());
                             let (table, open, n) = (table.clone(), open.clone(), n.clone());
                             std::thread::spawn(move || {
@@ -344,7 +344,7 @@ mod imp {
                                         }
                                     }
                                 }
-                                open.lock().unwrap().remove(&n);
+                                open.lock().unwrap_or_else(|e| e.into_inner()).remove(&n);
                             });
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => denied += 1,

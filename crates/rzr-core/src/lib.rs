@@ -5,20 +5,23 @@
 //! `device` (a connected mouse) + `features/*` (what it can do) + `devices/*` (model modules).
 //! Codecs: `bindings` (button actions), `macros`, `lighting`, `hidkeys`.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[macro_use]
 extern crate rzr_hal;
 
 pub use rzr_hal::{log_debug, log_error, log_info, log_warn, logs, transport};
-pub mod bindings;
+/// Device database (tested modules, OpenRazer, description files) — crate `rzr-devices`.
+pub use rzr_devices as devices;
+pub use rzr_devices::{bindings, hidkeys};
+pub mod caps;
 pub mod compat;
 pub mod device;
 pub mod drivers;
-pub mod devices;
 pub mod features;
 pub mod foreground;
-pub mod hidkeys;
 pub mod hotplug;
 pub mod lighting;
 pub mod macro_doc;

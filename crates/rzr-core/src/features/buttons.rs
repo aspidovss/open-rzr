@@ -47,6 +47,9 @@ impl RazerMouse {
     pub fn set_button(&mut self, id: u8, action: &Action, profile: u8, hypershift: bool) -> Result<()> {
         self.need(feat::BUTTONS)?;
         let rec = action.encode().map_err(Error::Invalid)?;
+        if action.kind == "raw" {
+            crate::bindings::check_record(&rec).map_err(|e| Error::Invalid(format!("button 0x{id:02x}: {e} — not written")))?;
+        }
         let mut a = vec![profile, id, hypershift as u8];
         a.extend(rec);
         let layer = if hypershift { " Hypershift" } else { "" };

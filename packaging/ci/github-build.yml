@@ -1,7 +1,7 @@
 name: build
 
-# Copy this file to .github/workflows/build.yml.
-# Builds Windows and Linux packages on every push; a tag like v0.2.0 publishes a Release.
+# Builds Windows and Linux packages and tests the window on every push; a tag like v0.2.0
+# publishes a Release. (The same file is kept in packaging/ci/github-build.yml.)
 on:
   push:
     branches: [main, master]
@@ -41,6 +41,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential curl wget file libssl-dev libxdo-dev \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Clippy (unwrap/expect are denied outside tests)
+        run: cargo clippy --workspace --all-targets
       - name: Build
         run: ./packaging/linux/build.sh --bundles
       - uses: actions/upload-artifact@v4
@@ -52,9 +54,30 @@ jobs:
             dist/*.AppImage
           if-no-files-found: error
 
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/uitest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - if: failure()
+        run: node smoke.js --shots || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shots
+          path: tools/uitest/shots/
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, linux]
+    needs: [windows, linux, ui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

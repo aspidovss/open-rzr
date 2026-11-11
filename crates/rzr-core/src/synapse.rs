@@ -183,12 +183,18 @@ pub fn scan() -> RazerSoftware {
     if let Ok(t) = run("tasklist", &["/FO", "CSV", "/NH"]) {
         sw.processes = parse_tasklist(&t);
     }
-    log_debug!(
-        "app",
+    // checked every few seconds while the window is open: log only what changed
+    let line = format!(
         "Razer software: services {:?}, programs {:?}",
         sw.services.iter().map(|s| format!("{}{}", s.name, if s.running { " (running)" } else { "" })).collect::<Vec<_>>(),
         sw.processes
     );
+    static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if *last != line {
+        log_debug!("app", "{line}");
+        *last = line;
+    }
     sw
 }
 

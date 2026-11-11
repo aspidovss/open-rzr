@@ -509,3 +509,10 @@ h1 button.help-link { margin-left: 6px; position: relative; top: -2px; }
 .wl-x input.num { width: 80px; }
 .wl-xres { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 6px; }
 .wl-xres .mono { word-break: break-all; }
+
+/* device files */
+.df-file { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.warn-text { color: var(--warn, #e0a030); }
+
+/* undo in the status bar */
+#status .undo { margin-left: 8px; padding: 0 8px; font-size: 12px; }

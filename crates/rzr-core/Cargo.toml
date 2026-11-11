@@ -14,9 +14,10 @@ path = "src/lib.rs"
 [features]
 # `json` adds serde (backup/restore files, the Tauri app). Without it the crate is std-only.
 default = ["json"]
-json = ["dep:serde", "dep:serde_json", "rzr-hal/json"]
+json = ["dep:serde", "dep:serde_json", "rzr-hal/json", "rzr-devices/json"]
 
 [dependencies]
 rzr-hal = { path = "../rzr-hal", default-features = false }
+rzr-devices = { path = "../rzr-devices", default-features = false }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }

@@ -1,5 +1,0 @@
-[console_scripts]
-open-rzr-cli = openrzr.cli:main
-
-[gui_scripts]
-open-rzr = openrzr.__main__:main

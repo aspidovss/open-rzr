@@ -8,6 +8,7 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 
 - **No analytics, no telemetry, no accounts.** The program never talks to the network.
 - **Settings stay in the mouse.** Bindings, DPI stages, macros and lighting are written to the on-board memory and work without the program, on any computer.
+- **Light in the background.** Closed to the tray it takes about **7 MB**: the window and its WebView are closed completely, only the tray, automatic profile switching and macro actions keep running.
 - **Always-on local log** of every action and USB packet — one click makes a report.
 - **English and Russian** interface and guide.
 - **117 models known:** the Naga Pro has its own tested module; other Razer mice come from the [OpenRazer](https://openrazer.github.io) device database, current ones with buttons, macros and profiles too (experimental).
@@ -18,10 +19,10 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 ## Features
 
 - **Customize** — every button with a drawing of the mouse, the three Naga Pro side plates (detected automatically), keys and shortcuts, mouse functions, macros, DPI and sniper, profiles, media keys, **turbo** for any button, **Hypershift** (second layer), find a button by pressing it.
-- **Profiles** — a library on this computer, five on-board slots, **Write to mouse** with a clear state, import/export, backup/restore, profiles linked to programs.
+- **Profiles** — a library on this computer, five on-board slots, **Write to mouse** with a clear state (an interrupted write is shown as such), **Undo** after a reset, import/export, backup/restore, profiles linked to programs.
 - **Macros** — an editor like the original: recording, loops, nested macros, typed text, drag and drop, undo/redo; **program actions** (launch a program or website, run a command, type any text) performed by open-rzr through an F13–F24 trigger key.
 - **Performance, lighting, power** — DPI stages, polling rate, lighting zones and effects, sleep, low power mode, battery.
-- **Diagnostics** — live log, report, all HID devices, drivers left by Synapse, raw commands.
+- **Diagnostics** — live log, report, all HID devices, drivers left by Synapse, raw commands, Bluetooth (HID and GATT) explorer, device description files.
 - **Help** — the built-in guide, the same as [`ui/docs`](ui/docs/en/getting-started.md).
 - **Command line** — `open-rzr-cli` and `orzr-cli` (razer-cli syntax).
 
@@ -51,6 +52,7 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 | Naga Pro family (experimental) | Naga V2 Pro `00A7` / `00A8`, Naga Pro over Bluetooth `0092` |
 | OpenRazer database + on-board check (experimental) | 68 current mice: Basilisk V2/V3, DeathAdder V2/V3, Viper, Cobra Pro, Naga X, Pro Click… |
 | OpenRazer database | older Razer mice: DPI, polling, battery, lighting |
+| Your description file | any Razer mouse with the same protocol: one `*.toml` / `*.json` per model in the `devices` folder, no recompiling |
 
 Details: [Supported mice and Bluetooth](ui/docs/en/devices.md).
 
@@ -69,6 +71,20 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 [-Installer
 ```
 
 Requirements and details: [Building and contributing](ui/docs/en/building.md).
+
+## Project layout
+
+| | |
+|---|---|
+| `crates/rzr-protocol` | the 90-byte Razer report: build, parse, checksum (`no_std`, no dependencies) |
+| `crates/rzr-hal` | USB/HID access: hidraw, hidapi, emulator, OpenRazer bridge; reply deadline, BUSY retries, sleeping wireless mouse |
+| `crates/rzr-devices` | device database: tested modules, OpenRazer, description files, button actions |
+| `crates/rzr-core` | the library: capability traits, features, macro compiler, profiles, program actions |
+| `crates/rzr-cli` | `open-rzr-cli` (clap) and `orzr-cli` (razer-cli syntax) |
+| `app` | the Tauri window and tray |
+| `tools/uitest` | window tests in a browser against a mock — `npm test` |
+
+`.unwrap()` / `.expect()` are not allowed outside tests (clippy). GitHub builds, tests and checks every push: [`packaging/ci/github-build.yml`](packaging/ci/github-build.yml).
 
 ## Acknowledgements
 

@@ -49,10 +49,33 @@ const errCode = (e) => (/^\[(\w+)\]/.exec(String(e)) || [])[1];
 
 function status(msg, err = false) {
   const s = $("#status");
+  status.undo = null;
   s.textContent = (err ? "✗ " : "✓ ") + msg;
   s.classList.toggle("err", err);
   clearTimeout(status.t);
   status.t = setTimeout(() => { s.textContent = ""; s.classList.remove("err"); }, err ? 15000 : 8000);
+}
+
+/** Status message with an "Undo" button for 10 s (after a reset, "off", clearing a layer…). */
+function statusUndo(msg, undo) {
+  status(msg);
+  const s = $("#status");
+  const b = el("button", { class: "link undo", text: t("common.undo"), onclick: async () => {
+    if (status.undo !== b) return;
+    status.undo = null; b.remove();
+    try { await undo(); status(t("common.undone")); } catch (_) { /* error shown by run() */ }
+  } });
+  status.undo = b;
+  s.append(" ", b);
+  clearTimeout(status.t);
+  status.t = setTimeout(() => { if (status.undo === b) { s.textContent = ""; status.undo = null; } }, 10000);
+}
+
+/** Put an earlier copy of the current profile back (undo of a profile-wide change). */
+async function restoreProfile(copy) {
+  S.profile = await run("profile_restore", { profile: copy });
+  markChanged();
+  drawCustomize(); showProfileDpi();
 }
 
 async function run(cmd, args, okMsg) {
@@ -750,6 +773,32 @@ async function showDrivers() {
   });
 }
 
+/** Diagnostics → Device files: descriptions of new models in *.toml / *.json. */
+async function showDeviceFiles() {
+  const r = await run("device_files");
+  await modal((box, close) => {
+    box.classList.add("wide");
+    const list = el("div", { class: "scroll-box" });
+    if (!r.files.length) list.append(el("div", { class: "muted", text: t("df.none") }));
+    r.files.forEach((f) => {
+      const name = f.file.split(/[\\/]/).pop();
+      list.append(el("div", { class: "df-file" },
+        el("div", {}, el("b", { text: name }), " ",
+          f.error ? el("span", { class: "warn-text", text: t("df.error") })
+            : el("span", { class: "mono small", text: `0x${f.pid.toString(16).padStart(4, "0")} ${f.name} · ${t("df.base")}: ${f.base}` })),
+        f.error ? el("div", { class: "notice", text: f.error }) : null,
+        ...f.warnings.map((w) => el("div", { class: "small muted", text: "⚠ " + w }))));
+    });
+    const copy = el("button", { text: t("df.copy_path"), onclick: () => quiet(navigator.clipboard.writeText(r.folder).then(() => status(t("df.copied")))) });
+    box.append(el("h2", { text: t("df.title") }),
+      el("div", { class: "muted small", text: t("df.note") }),
+      el("div", { class: "mono small", text: r.folder }),
+      list,
+      el("div", { class: "buttons" }, el("button", { text: t("tab.help"), "data-help": "devices#device-files", onclick: () => close(null) }), copy,
+        el("button", { class: "primary", text: t("common.ok"), onclick: () => close(null) })));
+  });
+}
+
 // ------------------------------------------------------------------ device page
 function plateText(p) {
   if (p == null) return t("plate.unknown");
@@ -762,7 +811,7 @@ function showExperimental(c) {
   const key = "openrzr.exp-hidden." + (c.serial || c.pid);
   let hidden = false;
   try { hidden = localStorage.getItem(key) === "1"; } catch (_) { /* no storage */ }
-  const text = exp.length ? t("exp.probed", { list: exp.join(", ") }) : c.source === "family" ? t("exp.family") : "";
+  const text = exp.length ? t("exp.probed", { list: exp.join(", ") }) : c.source === "family" ? t("exp.family") : c.source === "user" ? t("exp.user") : "";
   $("#exp-notice-text").textContent = text;
   $("#exp-notice").classList.toggle("hidden", !text || hidden);
   $("#btn-exp-hide").onclick = () => { try { localStorage.setItem(key, "1"); } catch (_) { /* no storage */ } $("#exp-notice").classList.add("hidden"); };
@@ -773,7 +822,7 @@ function loadDevice(c) {
   const kv = $("#dev-kv");
   kv.innerHTML = "";
   const rows = [[t("device.model"), deviceName(c.pid || 0, c.name)],
-    [t("device.module"), c.verified ? t("device.module_verified") : c.source === "family" ? t("device.module_family") : t("device.module_db")],
+    [t("device.module"), c.verified ? t("device.module_verified") : c.source === "family" ? t("device.module_family") : c.source === "user" ? t("device.module_user") : t("device.module_db")],
     [t("device.via"), c.openrazer ? t("device.via_or") : t("device.via_hid")],
     [t("device.conn"), c.wireless ? t("device.wireless") : t("device.wired")],
     [t("device.fw"), c.firmware], [t("device.serial"), c.serial || "—"], [t("device.profiles"), c.profiles.join(", ")],
@@ -1149,9 +1198,11 @@ async function reloadProfile() {
 async function resetProfile() {
   const p = curProfile();
   if (!(await confirmBox(t("prof.reset"), t("prof.reset_text", { name: p.name, where: slotText(p) }), t("prof.reset")))) return;
-  S.profile = await run("profile_reset", { id: p.id }, t("prof.reset_done"));
+  const copy = JSON.parse(JSON.stringify(S.profile));
+  S.profile = await run("profile_reset", { id: p.id });
   markChanged();
   drawCustomize(); showProfileDpi();
+  statusUndo(t("prof.reset_done"), () => restoreProfile(copy));
 }
 
 async function deleteProfile() {
@@ -1579,11 +1630,12 @@ async function layerOp(op) {
   if (!needMouse()) return;
   if (op === "clear" && !(await confirmBox(t("hs.clear"), t("hs.clear_text"), t("hs.clear_ok")))) return;
   const p = curProfile();
-  const n = await run("profile_layer", { id: p.id, op }, (n) => t(op === "copy" ? "hs.copied" : "hs.cleared", { n }));
-  void n;
+  const copy = JSON.parse(JSON.stringify(S.profile));
+  const n = await run("profile_layer", { id: p.id, op });
   S.profile = await run("profile_get", { id: p.id });
   markChanged();
   drawCustomize();
+  statusUndo(t(op === "copy" ? "hs.copied" : "hs.cleared", { n }), () => restoreProfile(copy));
 }
 
 function layerMenu(anchor) {
@@ -1627,9 +1679,21 @@ async function rowMenu(id) {
       drawCustomize();
     }
   }
-  if (choice === "default") await resetDefault(id);
+  if (choice === "default") await undoable(id, () => resetDefault(id));
   if (choice === "hs") await makeHs(id);
-  if (choice === "off") await setButton(id, { ...defaultAction(), kind: "disabled" });
+  if (choice === "off") await undoable(id, () => setButton(id, { ...defaultAction(), kind: "disabled" }));
+}
+
+/** Run a change of one button and offer to undo it (the previous binding is written back). */
+async function undoable(id, change) {
+  const hs = !!S.hs;
+  const pair = S.profile && S.profile.buttons[hex2(id).toLowerCase()];
+  const before = pair && (hs ? pair.hypershift : pair.normal);
+  await change();
+  if (before) {
+    const msg = $("#status").textContent.replace(/^✓ /, "");
+    statusUndo(msg, () => setButton(id, before, hs));
+  }
 }
 
 async function resetDefault(id) {
@@ -1663,7 +1727,7 @@ async function editButton(id) {
   if (S.hs && isHsMod(id)) return status(t("hs.locked", { b: buttonName(id) }), true);
   ulog(`binding editor ${hex2(id)}`, "DEBUG");
   let act = await bindingDialog({ id, action: bindingOf(id) || defaultAction() });
-  if (act === "default") return resetDefault(id);
+  if (act === "default") return undoable(id, () => resetDefault(id));
   if (act && act.turboMedia) {
     const mid = await run("turbo_media", { code: act.code, interval: act.interval });
     act = { ...defaultAction(), kind: "macro", macro_id: mid, macro_mode: "hold" };
@@ -2699,7 +2763,11 @@ function applyLogFilter() {
 }
 async function sendRaw() {
   if (!needMouse()) return;
-  const cmd = $("#raw-cmd").value.trim(), args = $("#raw-args").value, size = +$("#raw-size").value || null;
+  const cmd = $("#raw-cmd").value.trim(), args = $("#raw-args").value;
+  // size is hex like the command and the arguments ("0a", "0x0a"); empty = number of argument bytes
+  const sv = $("#raw-size").value.trim().replace(/^0x/i, "");
+  if (sv && !/^[0-9a-f]{1,2}$/i.test(sv)) { status(t("diag.raw_size_bad"), true); return; }
+  const size = sv ? parseInt(sv, 16) : null;
   if (!/^(0x)?[0-9a-fA-F]{1,4}$/.test(cmd)) return status(t("diag.bad_cmd"), true);
   await run("raw_command", { cmd, args, size }, (r) => t("diag.raw_ok", { r }));
 }
@@ -2843,7 +2911,7 @@ async function showDevices() {
         body.append(el("tr", {},
           el("td", { class: "mono", text: pid }),
           el("td", {}, d.name, el("span", { class: "badge" + (d.verified ? " ok" : ""), title: d.probe ? t("about.probe_note") : "",
-            text: d.verified ? t("about.tested") : d.source === "family" ? t("about.family") : d.probe ? "OpenRazer + " + t("about.probe") : "OpenRazer" })),
+            text: d.verified ? t("about.tested") : d.source === "family" ? t("about.family") : d.source === "user" ? t("about.user") : d.probe ? "OpenRazer + " + t("about.probe") : "OpenRazer" })),
           el("td", { text: feats(d.direct) || "—" }),
           el("td", { class: "muted", text: feats(d.openrazer) || "—" })));
       }
@@ -2956,6 +3024,7 @@ function bind() {
   $("#set-minimized").addEventListener("change", saveAutostart);
   $("#btn-hidlist").addEventListener("click", () => quiet(showHidList()));
   $("#btn-drivers").addEventListener("click", () => quiet(showDrivers()));
+  $("#btn-devfiles").addEventListener("click", () => quiet(showDeviceFiles()));
   $("#btn-wireless").addEventListener("click", () => quiet(showWireless()));
   $("#set-autowrite").addEventListener("change", async (e) => {
     if (!S.profiles) { e.target.checked = false; return status(t("wr.need_mouse"), true); }

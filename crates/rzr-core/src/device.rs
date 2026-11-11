@@ -55,6 +55,8 @@ pub struct RazerMouse {
     pub openrazer: Option<PathBuf>,
     /// Features turned on by probing a model without an own module (`probe`): not tested on it.
     pub experimental: u32,
+    /// Zones whose brightness the mouse cannot report (it answers FAIL): not asked again.
+    pub(crate) brightness_unreadable: Vec<&'static str>,
 }
 
 pub(crate) fn hexs(b: &[u8]) -> String {
@@ -93,6 +95,7 @@ impl RazerMouse {
             zones,
             openrazer,
             experimental: 0,
+            brightness_unreadable: Vec::new(),
         }
     }
 
@@ -100,7 +103,7 @@ impl RazerMouse {
     /// commands of the Naga Pro. Ask with read-only requests; what answers is turned on and
     /// recorded in `experimental`.
     pub fn probe(&mut self) {
-        if self.spec.source != devices::Source::OpenRazer || !devices::generic::may_have_onboard(self.spec.transaction_id) {
+        if !matches!(self.spec.source, devices::Source::OpenRazer | devices::Source::User) || !devices::generic::may_have_onboard(self.spec.transaction_id) {
             return;
         }
         let saved = self.features;

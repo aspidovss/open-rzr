@@ -272,6 +272,7 @@
           <span class="grow"></span>
           <button id="btn-hidlist" data-i18n="diag.hid"></button>
           <button id="btn-drivers" data-i18n="diag.drivers"></button>
+          <button id="btn-devfiles" data-i18n="df.title"></button>
           <button id="btn-wireless" data-i18n="wl.title"></button>
           <button id="btn-logdir" data-i18n="diag.logdir"></button>
           <button class="primary" id="btn-report" data-i18n="diag.report"></button>
@@ -280,7 +281,7 @@
         <div class="row">
           <input id="raw-cmd" class="mono" data-i18n-ph="diag.cmd_ph" style="width:190px">
           <input id="raw-args" class="mono grow" data-i18n-ph="diag.args_ph">
-          <label>size</label><input id="raw-size" type="number" class="num" min="0" max="80" value="0">
+          <label>size</label><input id="raw-size" type="text" class="num mono" maxlength="4" placeholder="auto" data-i18n-title="diag.raw_size_tip" spellcheck="false">
           <button id="btn-raw" data-i18n="diag.send"></button>
         </div>
         <div id="log-path" class="muted small"></div>

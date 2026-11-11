@@ -94,8 +94,18 @@ impl Store {
     pub fn load() -> Store {
         match std::fs::read_to_string(path()) {
             Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-                openrzr::log_warn!("app", "settings.json is damaged ({e}), starting with defaults");
-                Store::default()
+                // the previous good version is kept next to it (library::write_safely)
+                let bak = std::fs::read_to_string(path().with_extension("bak")).ok().and_then(|b| serde_json::from_str(&b).ok());
+                match bak {
+                    Some(st) => {
+                        openrzr::log_warn!("app", "settings.json is damaged ({e}), using settings.bak");
+                        st
+                    }
+                    None => {
+                        openrzr::log_warn!("app", "settings.json is damaged ({e}), starting with defaults");
+                        Store::default()
+                    }
+                }
             }),
             Err(_) => Store::default(),
         }
@@ -103,12 +113,7 @@ impl Store {
 
     pub fn save(&self) {
         let p = path();
-        let res = (|| -> std::io::Result<()> {
-            std::fs::create_dir_all(p.parent().unwrap())?;
-            let tmp = p.with_extension("tmp");
-            std::fs::write(&tmp, serde_json::to_string_pretty(self).unwrap_or_default())?;
-            std::fs::rename(tmp, &p)
-        })();
+        let res = crate::library::write_safely(&p, serde_json::to_string_pretty(self).unwrap_or_default().as_bytes(), true);
         if let Err(e) = res {
             openrzr::log_error!("app", "cannot save settings: {e}");
         }

@@ -1,8 +1,6 @@
 //! Razer HID control protocol — the report format lives in the `rzr-protocol` crate (no_std);
 //! this module adds the error type of the whole stack (hardware layer, core, apps).
 
-use std::fmt;
-
 pub use rzr_protocol::{cmd, crc, polling_code, polling_hz, ProtocolError, Report, ARGS_LEN, REPORT_LEN};
 
 pub mod status {
@@ -14,52 +12,45 @@ pub mod status {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Errors of the whole stack. The messages are shown to the user; `code()` gives the UI a stable key.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// I/O with the device or the OS failed.
+    #[error("{0}")]
     Io(String),
     /// The mouse answered with a non-OK status.
+    #[error("command 0x{cmd:04x} failed: {}", status_name(.status))]
     Failed { cmd: u16, status: u8 },
     /// The reply belonged to another command (another program talks to the mouse).
+    #[error(
+        "The reply belongs to another command: another program is talking to the mouse \
+         (Razer Synapse / OpenRazer). Close it."
+    )]
     Conflict,
     /// No device / nothing to open.
+    #[error("{0}")]
     NotFound(String),
     /// Bad argument from the caller.
+    #[error("{0}")]
     Invalid(String),
     /// The OS denied access to the device (Linux: udev rule missing).
+    #[error("{0}")]
     NoAccess(String),
     /// the mouse (or the way it is connected) has no such feature
+    #[error("{0}")]
     Unsupported(String),
     /// A wireless device does not answer: asleep, switched off or out of range of its receiver.
     /// Not a fault — the request can be repeated when it wakes up.
+    #[error("The mouse is asleep or out of range of its receiver. Move it to wake it up.")]
     Asleep,
     /// No reply in time (`cmd`, waited `ms`).
+    #[error("no reply to command 0x{cmd:04x} within {ms} ms")]
     Timeout { cmd: u16, ms: u64 },
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Io(s) => write!(f, "{s}"),
-            Error::Failed { cmd, status } => {
-                write!(f, "command 0x{cmd:04x} failed: {}", status::name(*status))
-            }
-            Error::Conflict => write!(
-                f,
-                "The reply belongs to another command: another program is talking to the mouse \
-                 (Razer Synapse / OpenRazer). Close it."
-            ),
-            Error::NoAccess(s) => write!(f, "{s}"),
-            Error::NotFound(s) => write!(f, "{s}"),
-            Error::Invalid(s) => write!(f, "{s}"),
-            Error::Unsupported(s) => write!(f, "{s}"),
-            Error::Asleep => write!(f, "The mouse is asleep or out of range of its receiver. Move it to wake it up."),
-            Error::Timeout { cmd, ms } => write!(f, "no reply to command 0x{cmd:04x} within {ms} ms"),
-        }
-    }
+fn status_name(s: &u8) -> String {
+    status::name(*s)
 }
-
-impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
@@ -95,5 +86,25 @@ impl Error {
 impl From<ProtocolError> for Error {
     fn from(e: ProtocolError) -> Self {
         Error::Invalid(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_and_codes() {
+        assert_eq!(Error::Failed { cmd: 0x0081, status: status::NOT_SUPPORTED }.to_string(), "command 0x0081 failed: NOT_SUPPORTED");
+        assert_eq!(Error::Failed { cmd: 0x020c, status: 0x42 }.to_string(), "command 0x020c failed: 0x42");
+        assert_eq!(Error::Timeout { cmd: 0x0780, ms: 2000 }.to_string(), "no reply to command 0x0780 within 2000 ms");
+        assert_eq!(Error::Invalid("bad".into()).to_string(), "bad");
+        assert!(Error::Conflict.to_string().starts_with("The reply belongs to another command: another program is talking to the mouse (Razer"));
+        assert!(Error::Asleep.to_string().contains("asleep"));
+        assert_eq!((Error::Asleep.code(), Error::Conflict.code()), ("asleep", "conflict"));
+        let e: Error = std::io::Error::other("gone").into();
+        assert_eq!((e.code(), e.to_string()), ("io", "gone".to_string()));
+        let e: Box<dyn std::error::Error> = Box::new(Error::Asleep);
+        assert!(!e.to_string().is_empty());
     }
 }

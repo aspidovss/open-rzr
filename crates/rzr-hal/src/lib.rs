@@ -6,7 +6,7 @@
 //! * `protocol` — the report format (`rzr-protocol`) and the error type of the whole stack;
 //! * `logs` — the local log file (never sent anywhere).
 
-#![deny(clippy::unwrap_used, clippy::expect_used)]
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

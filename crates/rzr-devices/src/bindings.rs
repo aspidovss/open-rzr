@@ -120,6 +120,31 @@ impl Default for Action {
     }
 }
 
+/// A record the program does not understand ("raw") is written back as it was read, so it must at
+/// least be well-formed: a known type with the length that type has. A turbo record with a wrong
+/// length (e.g. `0e 01 09 00 14`) once stopped the wheel tilt of a Naga Pro until it was re-plugged.
+pub fn check_record(r: &[u8; 7]) -> Result<(), String> {
+    let lens: &[u8] = match r[0] {
+        DISABLED => &[0],
+        MOUSE | DOUBLE_CLICK | SYSTEM | HYPERSHIFT | SCROLL_MODE => &[1],
+        KEYBOARD | CONSUMER | MACRO_HOLD | MACRO_TOGGLE | MACRO_SEQUENCE => &[2],
+        MOUSE_TURBO | MACRO_FIXED => &[3],
+        KEYBOARD_TURBO => &[4],
+        DPI => &[1, 2, 5],
+        PROFILE => &[1, 2],
+        // a type this program does not know: only the length can be checked
+        _ => &[0, 1, 2, 3, 4, 5],
+    };
+    if lens.contains(&r[1]) {
+        Ok(())
+    } else {
+        Err(format!(
+            "malformed record {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}: type 0x{:02x} with length {}",
+            r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[0], r[1]
+        ))
+    }
+}
+
 impl Action {
     pub fn kind(kind: &str) -> Action {
         Action { kind: kind.into(), ..Default::default() }
@@ -215,6 +240,15 @@ impl Action {
             KEYBOARD_TURBO if len >= 4 => Some(Action {
                 kind: "keyboard_turbo".into(), modifiers: d[0], key: d[1], interval: be(d[2], d[3]), ..Default::default()
             }),
+            // turbo records with a wrong length byte (seen from older Synapse profiles, e.g.
+            // "0e 01 09 00 14"): the data is complete, only the length is wrong. Read them as turbo,
+            // so they are written back in the correct form.
+            MOUSE_TURBO if len >= 1 && be(r[3], r[4]) != 0 => Some(Action {
+                kind: "mouse_turbo".into(), button: r[2], interval: be(r[3], r[4]), ..Default::default()
+            }),
+            KEYBOARD_TURBO if len >= 1 && be(r[4], r[5]) != 0 => Some(Action {
+                kind: "keyboard_turbo".into(), modifiers: r[2], key: r[3], interval: be(r[4], r[5]), ..Default::default()
+            }),
             CONSUMER if len >= 2 => Some(Action { kind: "consumer".into(), code: be(d[0], d[1]), ..Default::default() }),
             SYSTEM if len >= 1 => Some(Action { kind: "system".into(), code: d[0] as u16, ..Default::default() }),
             MACRO_FIXED | MACRO_HOLD | MACRO_TOGGLE | MACRO_SEQUENCE if len >= 2 => {
@@ -290,6 +324,7 @@ impl Action {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -301,6 +336,19 @@ mod tests {
     fn reference_examples() {
         // razerqdhid docs: Ctrl+C = "02 02 01 06 00 00 00", mouse turbo wheel-up 100 ms = "0e 03 09 00 64 00 00"
         assert_eq!(hex(Action::keyboard(1, 0x06).encode().unwrap()), "02020106000000");
+        // a turbo record with a wrong length byte is repaired
+        let fixed = Action::decode(&[0x0e, 0x01, 0x09, 0x00, 0x14, 0x00, 0x00]);
+        assert_eq!((fixed.kind.as_str(), fixed.button, fixed.interval), ("mouse_turbo", 9, 20));
+        assert_eq!(fixed.encode().unwrap(), [0x0e, 0x03, 0x09, 0x00, 0x14, 0x00, 0x00]);
+        let k = Action::decode(&[0x0d, 0x02, 0x00, 0x04, 0x00, 0x32, 0x00]);
+        assert_eq!((k.kind.as_str(), k.key, k.interval), ("keyboard_turbo", 4, 50));
+        assert_eq!(Action::decode(&[0x0e, 0x01, 0x09, 0x00, 0x00, 0x00, 0x00]).kind, "raw");
+        // malformed records are recognised, normal ones pass
+        assert!(check_record(&[0x0e, 0x01, 0x09, 0x00, 0x00, 0x00, 0x00]).is_err());
+        assert!(check_record(&[0x0e, 0x03, 0x09, 0x00, 0x32, 0x00, 0x00]).is_ok());
+        assert!(check_record(&[0x06, 0x05, 0x05, 0x01, 0x90, 0x01, 0x90]).is_ok());
+        assert!(check_record(&[0x42, 0x02, 0x01, 0x02, 0x00, 0x00, 0x00]).is_ok());
+        assert!(check_record(&[0x42, 0x07, 0x01, 0x02, 0x00, 0x00, 0x00]).is_err());
         let t = Action { kind: "mouse_turbo".into(), button: 9, interval: 100, ..Default::default() };
         assert_eq!(hex(t.encode().unwrap()), "0e030900640000");
     }

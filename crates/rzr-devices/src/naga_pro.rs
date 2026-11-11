@@ -77,9 +77,10 @@ pub fn default_action(id: u8) -> Option<Action> {
         0x0B => dpi(0x01),
         0x0C => dpi(0x02),
         0x0E => Action { kind: "profile".into(), code: 0x04, ..Default::default() },
-        // pressing the wheel sideways scrolls up / down out of the box (checked on the mouse)
-        0x34 => Action::mouse(0x09),
-        0x35 => Action::mouse(0x0A),
+        // pressing the wheel sideways scrolls up / down, repeated every 50 ms while held
+        // (factory record "0e 03 09 00 32", read from the mouse)
+        0x34 => Action { kind: "mouse_turbo".into(), button: 0x09, interval: 50, ..Default::default() },
+        0x35 => Action { kind: "mouse_turbo".into(), button: 0x0A, interval: 50, ..Default::default() },
         0x40..=0x4B => Action::keyboard(0, SIDE_KEYS[(id - 0x40) as usize]),
         0x50..=0x55 => Action::keyboard(0, SIDE_KEYS[(id - 0x50) as usize]),
         _ => return None,

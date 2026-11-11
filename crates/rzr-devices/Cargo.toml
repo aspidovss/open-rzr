@@ -1,0 +1,18 @@
+[package]
+name = "rzr-devices"
+description = "open-rzr device database: tested modules, the OpenRazer database, description files (*.toml / *.json), button action codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# serde for button actions and load reports (the Tauri app, backup files)
+default = ["json"]
+json = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
