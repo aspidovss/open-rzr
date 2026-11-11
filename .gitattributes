@@ -1,0 +1,10 @@
+# Line ends: LF in the repository and in every checkout (also on Windows), so files are the same
+# everywhere — tests compare text files, and shell scripts must not get CRLF.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+
+*.png binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.exe binary

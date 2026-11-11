@@ -91,7 +91,8 @@ mod packaged_rule {
     fn matches_generated() {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux/99-open-rzr.rules");
         if let Ok(s) = std::fs::read_to_string(p) {
-            assert_eq!(s, super::rule_text(), "regenerate packaging/linux/99-open-rzr.rules");
+            // a Windows checkout may have turned the line ends into CRLF
+            assert_eq!(s.replace("\r\n", "\n"), super::rule_text(), "regenerate packaging/linux/99-open-rzr.rules");
         }
     }
 }

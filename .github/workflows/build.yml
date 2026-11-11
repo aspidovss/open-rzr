@@ -44,7 +44,8 @@ jobs:
       - name: Clippy (unwrap/expect are denied outside tests)
         run: cargo clippy --workspace --all-targets
       - name: Build
-        run: ./packaging/linux/build.sh --bundles
+        # run through bash: the executable bit can get lost in commits made on Windows
+        run: bash ./packaging/linux/build.sh --bundles
       - uses: actions/upload-artifact@v4
         with:
           name: open-rzr-linux
