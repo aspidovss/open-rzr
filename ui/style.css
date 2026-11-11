@@ -516,3 +516,8 @@ h1 button.help-link { margin-left: 6px; position: relative; top: -2px; }
 
 /* undo in the status bar */
 #status .undo { margin-left: 8px; padding: 0 8px; font-size: 12px; }
+
+/* user agreement, updates */
+pre.eula { white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.45; max-height: 52vh; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+#update-banner { display: flex; align-items: center; gap: 10px; }
+#update-banner.hidden { display: none; }

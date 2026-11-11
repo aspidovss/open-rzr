@@ -78,6 +78,14 @@ pub struct Store {
     /// serial -> fingerprint of what was last written into slots 1..5 (index 0 = slot 1)
     #[serde(default)]
     pub written: HashMap<String, Vec<Option<String>>>,
+    /// edition of the user agreement the user accepted (0 = not yet)
+    pub agreement: u32,
+    /// update check on GitHub: None = not asked yet (first run asks)
+    pub updates: Option<bool>,
+    /// when the update check last ran (unix seconds)
+    pub update_checked: u64,
+    /// a release the user chose not to be told about again ("0.7.0")
+    pub update_skip: String,
 }
 
 impl Store {

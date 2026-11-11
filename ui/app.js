@@ -2820,6 +2820,7 @@ async function loadSettings() {
   $("#set-minimized").checked = S.settings.start_minimized || !S.settings.autostart;
   $("#set-minimized").disabled = !S.settings.autostart;
   $("#set-close-tray").checked = S.settings.close_to_tray;
+  $("#set-updates").checked = !!S.settings.updates;
   $("#log-level").value = S.settings.log_level;
   $$('input[name="ui-style"]').forEach((r) => { r.checked = r.value === (S.style || "synapse"); });
   await quiet(loadOpenRazer());
@@ -2981,8 +2982,172 @@ async function firstRunLanguage() {
   ulog(`first run: language ${i18n.lang} (detected ${detected})`);
 }
 
+// ------------------------------------------------------------------ user agreement, updates
+const PROJECT = "https://github.com/aspidovss/open-rzr";
+
+/** The agreement in the window. First run: Accept / Do not accept (quits); later: read only. */
+async function showAgreement(firstRun) {
+  const texts = {};
+  const load = async (lang) => {
+    if (!(lang in texts)) {
+      try { texts[lang] = await (await fetch(`legal/eula.${lang}.txt`)).text(); } catch (e) { texts[lang] = `${PROJECT}/blob/main/ui/legal/eula.${lang}.txt`; }
+    }
+    return texts[lang].replace(/^\uFEFF/, "");
+  };
+  let lang = i18n.lang;
+  for (;;) {
+    const answer = await modal((box, close) => {
+      box.classList.add("wide");
+      if (firstRun) box.dataset.capture = "1"; // no Escape: an answer is needed
+      const text = el("pre", { class: "eula scroll-box" });
+      const seg = el("div", { class: "seg" });
+      const show = async (l) => {
+        lang = l;
+        text.textContent = await load(l);
+        seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.l === l));
+      };
+      for (const l of ["en", "ru"]) seg.append(el("button", { text: l.toUpperCase(), "data-l": l, onclick: () => show(l) }));
+      show(lang);
+      box.append(el("div", { class: "row" }, el("h2", { class: "grow", text: t("eula.title") }), seg),
+        firstRun ? el("div", { class: "muted small", text: t("eula.intro") }) : null,
+        text,
+        el("div", { class: "buttons" }, ...(firstRun
+          ? [el("button", { text: t("eula.decline"), onclick: () => close("decline") }),
+            el("button", { class: "primary", text: t("eula.accept"), onclick: () => close("accept") })]
+          : [el("button", { class: "primary", text: t("common.ok"), onclick: () => close(null) })])));
+    });
+    if (!firstRun) return;
+    if (answer === "accept") { await api.call("agreement_accept"); return; }
+    if (answer === "decline") {
+      if (await confirmBox(t("eula.decline"), t("eula.decline_text"), t("eula.quit"))) { await api.call("agreement_decline"); return; }
+    }
+  }
+}
+
+/** First run, after the agreement: ask once whether to check GitHub for new versions. */
+async function askUpdates() {
+  const yes = await modal((box, close) => {
+    box.dataset.capture = "1";
+    box.append(el("h2", { text: t("upd.ask_title") }),
+      el("div", { text: t("upd.ask_text") }),
+      el("div", { class: "muted small", text: t("upd.ask_note") }),
+      el("div", { class: "buttons" },
+        el("button", { text: t("upd.ask_no"), onclick: () => close(false) }),
+        el("button", { class: "primary", autofocus: true, text: t("upd.ask_yes"), onclick: () => close(true) })));
+  });
+  await api.call("set_updates", { enabled: !!yes });
+  S.settings.updates = !!yes;
+}
+
+/** "0.6.10" > "0.6.9" */
+function newerVersion(a, b) {
+  const p = (v) => String(v).replace(/^v/, "").split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+}
+
+/**
+ * Ask GitHub for the latest release (one GET to api.github.com, nothing else is sent).
+ * `manual`: from the button in Settings — also says "up to date" and shows a hidden version.
+ */
+async function checkUpdates(manual) {
+  const state = $("#update-state");
+  if (manual) state.textContent = t("upd.checking");
+  let rel;
+  try {
+    const r = await fetch("https://api.github.com/repos/aspidovss/open-rzr/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    rel = await r.json();
+  } catch (e) {
+    await quiet(api.call("update_checked", { result: "failed: " + e.message }));
+    if (manual) state.textContent = t("upd.failed");
+    return;
+  }
+  const ver = String(rel.tag_name || "").replace(/^v/, "");
+  const newer = ver && !rel.draft && !rel.prerelease && newerVersion(ver, S.info.version);
+  await quiet(api.call("update_checked", { result: newer ? `${ver} available` : `up to date (latest ${ver || "?"})` }));
+  if (!newer) { if (manual) state.textContent = t("upd.latest", { v: S.info.version }); return; }
+  if (manual) state.textContent = t("upd.available", { v: ver });
+  if (!manual && S.settings.update_skip === ver) return;
+  S.update = { version: ver, url: String(rel.html_url || "").startsWith(PROJECT) ? rel.html_url : `${PROJECT}/releases/latest` };
+  $("#update-text").textContent = t("upd.available", { v: ver });
+  $("#update-banner").classList.remove("hidden");
+}
+
+async function autoCheckUpdates() {
+  if (S.settings.updates && (await quiet(api.call("update_due")))) await quiet(checkUpdates(false));
+}
+
+function bindUpdates() {
+  $("#set-updates").addEventListener("change", async (e) => {
+    S.settings.updates = e.target.checked;
+    await run("set_updates", { enabled: e.target.checked }, t("set.saved"));
+  });
+  $("#btn-update-check").addEventListener("click", () => quiet(checkUpdates(true)));
+  $("#btn-eula").addEventListener("click", () => quiet(showAgreement(false)));
+  $("#btn-update-notes").addEventListener("click", () => S.update && quiet(api.call("open_project_page", { url: S.update.url })));
+  $("#btn-update-hide").addEventListener("click", async () => {
+    if (!S.update) return;
+    await quiet(api.call("update_skip", { version: S.update.version }));
+    S.settings.update_skip = S.update.version;
+    $("#update-banner").classList.add("hidden");
+  });
+}
+
+// ------------------------------------------------------------------ removal
+/**
+ * "Remove open-rzr from this computer". Installed with the installer → its uninstaller.
+ * Otherwise: Razer services back (if stopped), autostart off, udev rule removed, then quit and,
+ * if chosen, delete the data folders after exit. The program files are left to the user.
+ */
+async function removeFromComputer() {
+  const info = await api.call("removal_info");
+  if (info.uninstaller) {
+    if (await confirmBox(t("rm.title"), t("rm.installed_text"), t("rm.run_uninstaller"))) await run("run_uninstaller", {});
+    return;
+  }
+  const opts = await modal((box, close) => {
+    const steps = [];
+    if (info.autostart) steps.push(t("rm.step_autostart"));
+    if (info.udev_rule) steps.push(t("rm.step_udev"));
+    const razer = el("input", { type: "checkbox", id: "rm-razer", checked: true });
+    const data = el("input", { type: "checkbox", id: "rm-data" });
+    box.append(el("h2", { text: t("rm.title") }),
+      el("div", { text: t("rm.text") }),
+      steps.length ? el("ul", {}, ...steps.map((x) => el("li", { text: x }))) : el("div", { class: "muted small", text: t("rm.nothing_changed") }),
+      info.razer_stopped ? el("label", { class: "check" }, razer, el("span", { text: " " + t("rm.razer") })) : "",
+      el("label", { class: "check" }, data, el("span", { text: " " + t("rm.data") })),
+      el("pre", { class: "small muted", text: info.data_dirs.join("\n") }),
+      el("div", { class: "muted small", text: info.package ? t("rm.package") : t("rm.files", { path: info.program }) }),
+      el("div", { class: "muted small", text: t("rm.mouse") }),
+      el("div", { class: "buttons" },
+        el("button", { autofocus: true, text: t("common.cancel"), onclick: () => close(null) }),
+        el("button", { class: "danger", text: t("rm.button"), onclick: () => close({ start_razer: info.razer_stopped && razer.checked, delete_data: data.checked }) })));
+  });
+  if (!opts) return;
+  try {
+    await api.call("remove_from_computer", { startRazer: opts.start_razer });
+  } catch (e) {
+    status(t("rm.failed", { e: errText(e) }), true);
+    return;
+  }
+  const open = await modal((box, close) => {
+    box.dataset.capture = "1";
+    box.append(el("h2", { text: t("rm.done_title") }),
+      el("div", { text: opts.delete_data ? t("rm.done_data") : t("rm.done_kept", { path: info.data_dir }) }),
+      el("div", { class: "muted small", text: info.package ? t("rm.package") : t("rm.files", { path: info.program }) }),
+      el("div", { class: "buttons" },
+        info.package ? "" : el("button", { text: t("rm.quit_open"), onclick: () => close(true) }),
+        el("button", { class: "primary", autofocus: true, text: t("rm.quit"), onclick: () => close(false) })));
+  });
+  await api.call("remove_finish", { deleteData: opts.delete_data, openFolder: !!open });
+}
+
 // ------------------------------------------------------------------ init
 function bind() {
+  bindUpdates();
+  $("#btn-remove").addEventListener("click", () => quiet(removeFromComputer()));
   $$("#nav button").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.page)));
   $("#btn-rescan").addEventListener("click", rescan);
   $("#dev-select").addEventListener("change", (e) => { if (S.groups.length) { ulog("mouse selected: " + e.target.selectedOptions[0].text); connect(+e.target.value); } });
@@ -3066,6 +3231,10 @@ async function init() {
   buildStages(5);
   if (S.settings.language) await setLanguage(S.settings.language, false);
   else await firstRunLanguage();
+  // first run: the user agreement (until accepted, the mouse is not touched), then the update question
+  const fr = await api.call("first_run");
+  if (!fr.agreement_accepted) await showAgreement(true);
+  if (fr.updates === null) await askUpdates();
   ulog("window opened");
   api.on("device-change", onDeviceChange);
   api.on("profile-switched", onProfileSwitched);
@@ -3080,6 +3249,7 @@ async function init() {
   setInterval(refreshBattery, 60000);
   setInterval(checkPlate, 5000);
   watchRazer();
+  quiet(autoCheckUpdates());
   setInterval(checkPoly, 10000); // Linux: Polychromatic started or closed // swap the plate — the list follows (Auto mode, Buttons tab open)
   const page = new URLSearchParams(location.search).get("page");
   if (page) showPage(page);

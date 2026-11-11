@@ -49,6 +49,11 @@
     <section id="pages">
       <div id="no-mouse" class="notice hidden" data-i18n="common.connect_first"></div>
       <div class="notices">
+        <div id="update-banner" class="notice hidden">
+          <span id="update-text"></span><span class="grow"></span>
+          <button id="btn-update-notes" data-i18n="upd.notes"></button>
+          <button id="btn-update-hide" class="link" data-i18n="upd.hide"></button>
+        </div>
         <div id="exp-notice" class="notice hidden">
             <div id="exp-notice-text"></div>
             <div class="row" style="margin-top:8px"><span class="grow"></span>
@@ -334,6 +339,13 @@
           <div class="muted small" data-i18n="set.tray_note"></div>
         </div>
         <div class="card">
+          <div class="card-title" data-i18n="upd.title"></div>
+          <label class="check"><input type="checkbox" id="set-updates"> <span data-i18n="upd.set"></span></label>
+          <div class="muted small" data-i18n="upd.note"></div>
+          <div class="row"><button id="btn-update-check" data-i18n="upd.check_now"></button><span id="update-state" class="muted small"></span></div>
+          <div class="row"><button id="btn-eula" class="link" data-i18n="eula.show"></button></div>
+        </div>
+        <div class="card">
           <div class="card-title" data-i18n="set.log"></div>
           <div class="row"><label data-i18n="set.log_level"></label>
             <select id="log-level"><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option></select></div>
@@ -365,6 +377,11 @@
           </div>
           <div class="row"><span class="grow"></span><button id="btn-or-refresh" data-i18n="or.refresh"></button>
             <button id="btn-or-stop" data-i18n="or.stop"></button></div>
+        </div>
+        <div class="card">
+          <div class="card-title" data-i18n="rm.title"></div>
+          <div class="muted small" data-i18n="rm.note"></div>
+          <div class="row"><button class="danger" id="btn-remove" data-i18n="rm.button"></button></div>
         </div>
         <div class="card" id="about-card">
           <div class="card-title" data-i18n="about.title"></div>

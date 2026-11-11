@@ -1,0 +1,29 @@
+open-rzr USER AGREEMENT
+
+Version 2. By installing or using open-rzr (the "Program") you confirm that you have read and accept this agreement. If you do not accept it, do not install or use the Program.
+
+1. Licence and no warranty
+The Program is distributed under the MIT licence (file LICENSE) "AS IS", without warranty of any kind, express or implied, including warranties that it works, is fit for a particular purpose or is free of errors.
+
+2. Responsibility
+The Program writes data to the on-board memory of the mouse: button bindings, macros, profiles, DPI stages, lighting and power settings. What it writes replaces the earlier settings, including those made in Razer Synapse. The Program can also stop Razer services and programs on the computer and, on Linux, install a udev rule for access to the mouse.
+The user bears all responsibility for using the Program and its consequences, including loss of settings, a mouse that works incorrectly or stops working, loss of data and loss of the manufacturer's warranty. In no event shall the authors or contributors be liable for any damage related to the Program.
+
+3. Experimental device support
+Only the Razer Naga Pro module is tested. Other models — from the OpenRazer project's database, the "Naga Pro family" and devices described by your own files — have not been tested by the authors and are marked as experimental in the Program. By using the Program with them you accept the higher risk described in section 2.
+
+4. Third-party components
+The Program contains no Razer Synapse code, no Razer drivers and no other proprietary components. Device information (product ids, commands, lighting zones) is taken as facts from the open OpenRazer project (GPL-2.0); no OpenRazer code is included.
+The Program uses open libraries (Tauri, serde, hidapi, clap, tokio and others) under their licences (MIT, Apache-2.0 and compatible); the licence of each library is published with it (crates.io, its source repository). On Windows the window of the Program is shown by Microsoft Edge WebView2, which is provided by Microsoft under its own terms and is not part of the Program.
+
+5. Unofficial program
+The Program is not affiliated with or supported by Razer Inc. Razer, Synapse, Naga, HyperSpeed and other names and trademarks mentioned belong to their owners.
+
+6. Data
+The Program does not collect or send information about you, your computer or your devices. The update check contacts GitHub only, only if you turned it on, and can be turned off in the settings. The log and the diagnostic report stay on your computer; a report is created only on your command and sent only by you.
+
+7. Use of artificial intelligence
+The Program contains code, documentation and other components created or changed with the help of artificial intelligence (AI) tools. These parts have been reviewed by the author, but may contain errors that a person would have made differently or not at all. This does not change sections 1 and 2.
+
+Author: @AspidovSS
+Contact: orzr@aspidov.ru · https://github.com/aspidovss/open-rzr

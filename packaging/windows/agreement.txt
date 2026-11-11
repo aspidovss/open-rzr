@@ -1,0 +1,61 @@
+open-rzr USER AGREEMENT
+
+Version 2. By installing or using open-rzr (the "Program") you confirm that you have read and accept this agreement. If you do not accept it, do not install or use the Program.
+
+1. Licence and no warranty
+The Program is distributed under the MIT licence (file LICENSE) "AS IS", without warranty of any kind, express or implied, including warranties that it works, is fit for a particular purpose or is free of errors.
+
+2. Responsibility
+The Program writes data to the on-board memory of the mouse: button bindings, macros, profiles, DPI stages, lighting and power settings. What it writes replaces the earlier settings, including those made in Razer Synapse. The Program can also stop Razer services and programs on the computer and, on Linux, install a udev rule for access to the mouse.
+The user bears all responsibility for using the Program and its consequences, including loss of settings, a mouse that works incorrectly or stops working, loss of data and loss of the manufacturer's warranty. In no event shall the authors or contributors be liable for any damage related to the Program.
+
+3. Experimental device support
+Only the Razer Naga Pro module is tested. Other models — from the OpenRazer project's database, the "Naga Pro family" and devices described by your own files — have not been tested by the authors and are marked as experimental in the Program. By using the Program with them you accept the higher risk described in section 2.
+
+4. Third-party components
+The Program contains no Razer Synapse code, no Razer drivers and no other proprietary components. Device information (product ids, commands, lighting zones) is taken as facts from the open OpenRazer project (GPL-2.0); no OpenRazer code is included.
+The Program uses open libraries (Tauri, serde, hidapi, clap, tokio and others) under their licences (MIT, Apache-2.0 and compatible); the licence of each library is published with it (crates.io, its source repository). On Windows the window of the Program is shown by Microsoft Edge WebView2, which is provided by Microsoft under its own terms and is not part of the Program.
+
+5. Unofficial program
+The Program is not affiliated with or supported by Razer Inc. Razer, Synapse, Naga, HyperSpeed and other names and trademarks mentioned belong to their owners.
+
+6. Data
+The Program does not collect or send information about you, your computer or your devices. The update check contacts GitHub only, only if you turned it on, and can be turned off in the settings. The log and the diagnostic report stay on your computer; a report is created only on your command and sent only by you.
+
+7. Use of artificial intelligence
+The Program contains code, documentation and other components created or changed with the help of artificial intelligence (AI) tools. These parts have been reviewed by the author, but may contain errors that a person would have made differently or not at all. This does not change sections 1 and 2.
+
+Author: @AspidovSS
+Contact: orzr@aspidov.ru · https://github.com/aspidovss/open-rzr
+
+============================================================
+
+ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ open-rzr
+
+Редакция 2. Устанавливая или используя open-rzr (далее — «Программа»), вы подтверждаете, что прочитали это соглашение и согласны с ним. Если вы не согласны — не устанавливайте и не используйте Программу.
+
+1. Лицензия и отказ от гарантий
+Программа распространяется по лицензии MIT (файл LICENSE) на условиях «КАК ЕСТЬ» (AS IS), без каких-либо гарантий, явных или подразумеваемых, в том числе гарантий работоспособности, пригодности для определённой цели и отсутствия ошибок.
+
+2. Ответственность
+Программа записывает данные во встроенную память мыши: назначения кнопок, макросы, профили, стадии DPI, подсветку и параметры питания. Записанное заменяет прежние настройки, в том числе сделанные в Razer Synapse. Программа также может остановить службы и программы Razer на компьютере, а в Linux — установить правило udev для доступа к мыши.
+Всю ответственность за использование Программы и его последствия — включая потерю настроек, неправильную или прекратившуюся работу мыши, потерю данных и утрату гарантии производителя — несёт пользователь. Авторы и участники проекта ни при каких обстоятельствах не отвечают за любой ущерб, связанный с Программой.
+
+3. Экспериментальная поддержка устройств
+Проверенным считается только модуль Razer Naga Pro. Остальные модели — из базы проекта OpenRazer, «семейство Naga Pro» и устройства, описанные вашими файлами, — авторами не проверялись и отмечены в Программе как экспериментальные. Используя Программу с ними, вы принимаете повышенный риск, описанный в пункте 2.
+
+4. Сторонние компоненты
+Программа не содержит кода Razer Synapse, драйверов Razer и других проприетарных компонентов. Сведения об устройствах (коды продуктов, команды, зоны подсветки) взяты из открытого проекта OpenRazer (GPL-2.0) как факты; код OpenRazer в Программу не входит.
+Программа использует открытые библиотеки (Tauri, serde, hidapi, clap, tokio и другие) на условиях их лицензий (MIT, Apache-2.0 и совместимых); лицензия каждой библиотеки опубликована вместе с ней (crates.io, её репозиторий исходного кода). В Windows окно Программы отображается компонентом Microsoft Edge WebView2, который поставляется Microsoft на её условиях и в Программу не входит.
+
+5. Неофициальная программа
+Программа не связана с Razer Inc. и не поддерживается ею. Razer, Synapse, Naga, HyperSpeed и другие упомянутые названия и товарные знаки принадлежат их владельцам.
+
+6. Данные
+Программа не собирает и не передаёт сведения о вас, вашем компьютере или ваших устройствах. Проверка обновлений обращается только к GitHub, только если вы её включили, и её можно отключить в настройках. Журнал и диагностический отчёт хранятся на вашем компьютере; отчёт создаётся только по вашей команде и отправляется только вами.
+
+7. Использование искусственного интеллекта
+Программа содержит код, документацию и другие компоненты, созданные или изменённые с помощью инструментов искусственного интеллекта (ИИ). Такие части проверялись автором, но могут содержать ошибки, которые человек допустил бы иначе или не допустил бы вовсе. Это не меняет условий пунктов 1 и 2.
+
+Автор: @AspidovSS
+Контакты: orzr@aspidov.ru · https://github.com/aspidovss/open-rzr

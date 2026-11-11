@@ -44,43 +44,85 @@ fn which(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Write the rule as root (pkexec for the GUI, sudo in a terminal).
-pub fn install(graphical: bool) -> Result<(), String> {
-    if !cfg!(target_os = "linux") {
-        return Err("udev exists only on Linux".into());
-    }
-    let script = format!(
-        "cat > '{RULE_PATH}' && udevadm control --reload-rules && udevadm trigger --subsystem-match=hidraw --action=change"
-    );
-    let elev = if graphical && which("pkexec") {
-        "pkexec"
+/// pkexec for the GUI, sudo in a terminal
+fn elevator(graphical: bool) -> Option<&'static str> {
+    if graphical && which("pkexec") {
+        Some("pkexec")
     } else if which("sudo") {
-        "sudo"
+        Some("sudo")
     } else {
-        return Err(format!("No pkexec/sudo. Create {RULE_PATH} manually:\n{}", rule_text()));
-    };
-    crate::log_info!("app", "installing udev rule via {elev}");
+        None
+    }
+}
+
+/// Run `script` with `sh -c` as root, `input` on its stdin.
+fn as_root(graphical: bool, script: &str, input: &[u8]) -> Result<(), String> {
+    let elev = elevator(graphical).ok_or("no pkexec/sudo")?;
+    crate::log_info!("app", "udev: running as root via {elev}");
     let mut child = Command::new(elev)
-        .args(["sh", "-c", &script])
+        .args(["sh", "-c", script])
         .env_remove("LD_LIBRARY_PATH")
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("{elev}: {e}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or("stdin")?
-        .write_all(rule_text().as_bytes())
-        .map_err(|e| e.to_string())?;
+    child.stdin.take().ok_or("stdin")?.write_all(input).map_err(|e| e.to_string())?;
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if out.status.success() {
-        crate::log_info!("app", "udev rule installed: {RULE_PATH}");
         Ok(())
     } else {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        crate::log_error!("app", "udev rule not installed: {err}");
-        Err(format!("Could not install the udev rule{}", if err.is_empty() { " (cancelled?)".into() } else { format!(": {err}") }))
+        Err(if err.is_empty() { "cancelled?".into() } else { err })
+    }
+}
+
+/// Write the rule as root (pkexec for the GUI, sudo in a terminal).
+pub fn install(graphical: bool) -> Result<(), String> {
+    if !cfg!(target_os = "linux") {
+        return Err("udev exists only on Linux".into());
+    }
+    if elevator(graphical).is_none() {
+        return Err(format!("No pkexec/sudo. Create {RULE_PATH} manually:\n{}", rule_text()));
+    }
+    let script = format!(
+        "cat > '{RULE_PATH}' && udevadm control --reload-rules && udevadm trigger --subsystem-match=hidraw --action=change"
+    );
+    match as_root(graphical, &script, rule_text().as_bytes()) {
+        Ok(()) => {
+            crate::log_info!("app", "udev rule installed: {RULE_PATH}");
+            Ok(())
+        }
+        Err(e) => {
+            crate::log_error!("app", "udev rule not installed: {e}");
+            Err(format!("Could not install the udev rule: {e}"))
+        }
+    }
+}
+
+/// A rule file written by [`install`] exists (the .deb package keeps its own in /usr/lib and
+/// removes it itself).
+pub fn rule_present() -> bool {
+    std::path::Path::new(RULE_PATH).exists()
+}
+
+/// Remove the rule written by [`install`] (as root).
+pub fn uninstall(graphical: bool) -> Result<(), String> {
+    if !cfg!(target_os = "linux") || !rule_present() {
+        return Ok(());
+    }
+    if elevator(graphical).is_none() {
+        return Err(format!("No pkexec/sudo. Remove {RULE_PATH} manually."));
+    }
+    let script = format!("rm -f '{RULE_PATH}' && udevadm control --reload-rules");
+    match as_root(graphical, &script, b"") {
+        Ok(()) => {
+            crate::log_info!("app", "udev rule removed: {RULE_PATH}");
+            Ok(())
+        }
+        Err(e) => {
+            crate::log_error!("app", "udev rule not removed: {e}");
+            Err(format!("Could not remove the udev rule: {e}"))
+        }
     }
 }
 

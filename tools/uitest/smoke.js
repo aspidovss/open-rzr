@@ -121,6 +121,88 @@ async function shot(p, name) {
     check(`${lang}: no JavaScript errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
     await p.context().close();
   }
+  // first run: user agreement, then the update question; update check with a mocked GitHub
+  for (const lang of ["en", "ru"]) {
+    const errors = [];
+    const p = await (await browser.newContext({ viewport: { width: 1200, height: 860 } })).newPage();
+    p.on("pageerror", (e) => errors.push(e.message));
+    p.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    await p.route("https://api.github.com/**", (r) => r.fulfill({ contentType: "application/json",
+      body: JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/aspidovss/open-rzr/releases/tag/v9.9.9", draft: false, prerelease: false }) }));
+    await p.goto(page + "?firstrun&lang=" + lang);
+    await p.waitForSelector("#modal:not(.hidden) pre.eula", { timeout: 10000 });
+    await p.waitForFunction(() => document.querySelector("pre.eula").textContent.length > 500);
+    const text = await p.textContent("pre.eula");
+    check(`${lang}: agreement shown first`, /open-rzr/.test(text) && /orzr@aspidov\.ru/.test(text));
+    await p.click(`#dialog .seg button[data-l="${lang === "en" ? "ru" : "en"}"]`); await p.waitForTimeout(200);
+    check(`${lang}: agreement in the other language`, (await p.textContent("pre.eula")) !== text);
+    await p.keyboard.press("Escape"); await p.waitForTimeout(100);
+    check(`${lang}: Escape does not skip the agreement`, await p.isVisible("pre.eula"));
+    await shot(p, `${lang}-first-agreement`);
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(200);
+    check(`${lang}: accepted`, await p.evaluate(() => !!window.__ST__.agreed));
+    check(`${lang}: then the update question`, await p.isVisible("#modal:not(.hidden)") && !(await p.isVisible("pre.eula")));
+    await shot(p, `${lang}-first-updates`);
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(300);
+    check(`${lang}: updates turned on`, await p.evaluate(() => window.__ST__.updates === true));
+    await p.waitForFunction(() => document.querySelectorAll("#fig .lbl").length > 5, null, { timeout: 15000 });
+    await p.waitForTimeout(500);
+    check(`${lang}: new version banner`, await p.isVisible("#update-banner"), await p.textContent("#update-text"));
+    await shot(p, `${lang}-update-banner`);
+    await p.click("#btn-update-notes"); await p.waitForTimeout(100);
+    check(`${lang}: "What's new" opens the release page`, (await p.evaluate(() => window.__ST__.opened)) === "https://github.com/aspidovss/open-rzr/releases/tag/v9.9.9");
+    await p.click("#btn-update-hide"); await p.waitForTimeout(100);
+    check(`${lang}: hide this version`, !(await p.isVisible("#update-banner")) && (await p.evaluate(() => window.__ST__.skipped)) === "9.9.9");
+    await p.click('#tabs button[data-tab="settings"]'); await p.waitForTimeout(100);
+    check(`${lang}: setting is on`, await p.isChecked("#set-updates"));
+    await p.click("#btn-update-check"); await p.waitForTimeout(400);
+    check(`${lang}: manual check`, /9\.9\.9/.test(await p.textContent("#update-state")));
+    await p.click("#btn-eula"); await p.waitForTimeout(300);
+    check(`${lang}: agreement can be read again`, await p.isVisible("pre.eula"));
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(100);
+    check(`${lang}: first run without JavaScript errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  // "Remove from this computer": portable (undo + delete data) and installed (uninstaller)
+  for (const lang of ["en", "ru"]) {
+    const { p, errors } = await open(browser, "lang=" + lang);
+    await p.click('#tabs button[data-tab="settings"]'); await p.waitForTimeout(100);
+    await p.click("#btn-remove"); await p.waitForSelector("#modal:not(.hidden) #rm-data");
+    await shot(p, `${lang}-remove`);
+    await p.click("#dialog .buttons button >> nth=0"); await p.waitForTimeout(100);
+    check(`${lang}: remove can be cancelled`, !(await p.isVisible("#modal:not(.hidden)")) && !(await p.evaluate(() => window.__ST__.removed)));
+    await p.click("#btn-remove"); await p.waitForSelector("#modal:not(.hidden) #rm-data");
+    await p.check("#rm-data");
+    await p.click("#dialog .buttons button.danger"); await p.waitForTimeout(200);
+    check(`${lang}: remove undoes changes (Razer services back)`, (await p.evaluate(() => window.__ST__.removed && window.__ST__.removed.startRazer)) === true);
+    await shot(p, `${lang}-remove-done`);
+    await p.keyboard.press("Escape"); await p.waitForTimeout(100);
+    check(`${lang}: final window stays until a choice`, await p.isVisible("#modal:not(.hidden)"));
+    await p.click("#dialog .buttons button >> nth=0"); await p.waitForTimeout(150);
+    const fin = await p.evaluate(() => window.__ST__.finish);
+    check(`${lang}: quit, delete data, open the folder`, !!fin && fin.deleteData === true && fin.openFolder === true, JSON.stringify(fin));
+    check(`${lang}: remove without JavaScript errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  {
+    const { p } = await open(browser, "lang=en&installed");
+    await p.click('#tabs button[data-tab="settings"]'); await p.waitForTimeout(100);
+    await p.click("#btn-remove"); await p.waitForSelector("#modal:not(.hidden)");
+    check("installed: no own removal dialog", !(await p.isVisible("#rm-data")));
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(150);
+    check("installed: runs the uninstaller", await p.evaluate(() => !!window.__ST__.uninstaller));
+    await p.context().close();
+  }
+  // declining the agreement closes the program
+  {
+    const p = await (await browser.newContext()).newPage();
+    await p.goto(page + "?firstrun&lang=en");
+    await p.waitForSelector("#modal:not(.hidden) pre.eula", { timeout: 10000 });
+    await p.click("#dialog .buttons button >> nth=0"); await p.waitForTimeout(150);
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(150);
+    check("decline closes the program", await p.evaluate(() => !!window.__ST__.quit));
+    await p.context().close();
+  }
   await browser.close();
   server.close();
   console.log(failed ? `smoke: ${failed} FAILED` : "smoke: all OK");

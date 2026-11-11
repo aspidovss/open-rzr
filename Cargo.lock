@@ -2436,7 +2436,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "open-rzr"
-version = "0.6.9"
+version = "0.6.12"
 dependencies = [
  "rzr-core",
  "serde",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "openrazer-import"
-version = "0.6.9"
+version = "0.6.12"
 
 [[package]]
 name = "option-ext"
@@ -2915,7 +2915,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rzr-cli"
-version = "0.6.9"
+version = "0.6.12"
 dependencies = [
  "clap",
  "rzr-core",
@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "rzr-core"
-version = "0.6.9"
+version = "0.6.12"
 dependencies = [
  "rzr-devices",
  "rzr-hal",
@@ -2934,14 +2934,14 @@ dependencies = [
 
 [[package]]
 name = "rzr-devices"
-version = "0.6.9"
+version = "0.6.12"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rzr-hal"
-version = "0.6.9"
+version = "0.6.12"
 dependencies = [
  "hidapi",
  "rzr-protocol",
@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "rzr-protocol"
-version = "0.6.9"
+version = "0.6.12"
 
 [[package]]
 name = "same-file"

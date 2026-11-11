@@ -10,7 +10,7 @@ mod library;
 mod store;
 
 #[allow(unused_imports)]
-use commands::{device::*, settings::*, openrazer_cmds::*, razer::*, performance::*, buttons::*, macro_cmds::*, lighting_cmds::*, profiles::*, backup::*, diagnostics::*, tables::*};
+use commands::{device::*, settings::*, openrazer_cmds::*, razer::*, performance::*, buttons::*, macro_cmds::*, lighting_cmds::*, profiles::*, backup::*, diagnostics::*, tables::*, removal::*};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -339,7 +339,7 @@ fn main() {
             commands::profiles::profile_rename, commands::profiles::profile_duplicate, commands::profiles::profile_delete, commands::profiles::profile_reset, commands::profiles::profile_reload,
             commands::profiles::profile_export, commands::profiles::profile_import, commands::profiles::open_folder_of, commands::profiles::slot_assign, commands::profiles::profile_links,
             commands::profiles::running_programs, commands::profiles::set_autoswitch, commands::settings::set_ui_style, commands::openrazer_cmds::open_polychromatic,
-            hide_to_tray, close_cancelled, ui_state_get, ui_state_set, commands::profiles::profile_restore
+            hide_to_tray, close_cancelled, ui_state_get, ui_state_set, commands::profiles::profile_restore, commands::settings::first_run, commands::settings::agreement_accept, commands::settings::agreement_decline, commands::settings::set_updates, commands::settings::update_due, commands::settings::update_checked, commands::settings::update_skip, commands::settings::open_project_page, commands::removal::removal_info, commands::removal::run_uninstaller, commands::removal::remove_from_computer, commands::removal::remove_finish
         ])
         .build(tauri::generate_context!())
         .map(|app| {

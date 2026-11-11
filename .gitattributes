@@ -2,6 +2,9 @@
 # everywhere — tests compare text files, and shell scripts must not get CRLF.
 * text=auto eol=lf
 *.ps1 text eol=crlf
+# the installer licence page (NSIS) wants Windows line ends
+packaging/windows/agreement.txt text eol=crlf
+packaging/windows/*.nsh text eol=crlf
 
 *.png binary
 *.ico binary

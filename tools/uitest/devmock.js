@@ -126,7 +126,7 @@
         zone_effects: { logo: ZE.logo, scroll: ["off", "static", "spectrum", "breath_single", "breath_dual", "breath_random", "reactive"] }, wireless: false, has_battery: false, max_dpi: 26000, max_stages: 5, lighting: ["scroll", "logo"], firmware: "v1.3", serial: "PM21", dpi: st.dpi, stages: st.stages[1], poll: 1000, battery: null, charging: false, idle: null, low: null, profiles: [1], side_plates: false, plate: null, plate_choice: "auto" };
       return { pid: 0x8f, verified: true, features: ALLF, openrazer: st.or.bridged ? "/sys/bus/hid/drivers/razermouse/0003:1532:008F.0005" : null, zone_effects: ZE, name: "Razer Naga Pro (кабель)", path: candidates[0].path, wireless: false, has_battery: true, max_dpi: 20000, max_stages: 5, lighting: ["scroll", "logo", "side"], firmware: "v1.5", serial: "PM2041H0001", dpi: st.dpi, stages: st.stages[1], poll: 1000, battery: 78, charging: false, idle: 300, low: 15, profiles: [1, 2, 3, 4, 5], side_plates: true, plate: st.plate, plate_choice: st.choice }; },
     battery: () => { if (st.failBattery) throw "[disconnected] HIDIOCGFEATURE: No such device"; return [77, true]; },
-    get_settings: () => ({ language: st.lang, autostart: st.auto.enabled, start_minimized: st.auto.minimized, close_to_tray: st.closeTray, log_level: "DEBUG", ui_style: st.style }),
+    get_settings: () => ({ language: st.lang, autostart: st.auto.enabled, start_minimized: st.auto.minimized, close_to_tray: st.closeTray, log_level: "DEBUG", ui_style: st.style, updates: st.updates === undefined ? null : st.updates, update_skip: st.skipped || "" }),
     set_ui_style: ({ style }) => { st.style = style; return null; },
     set_language: ({ language }) => { st.lang = language; return null; },
     set_autostart: ({ enabled, minimized }) => { st.auto = { enabled, minimized }; return st.auto; },
@@ -215,6 +215,21 @@
     device_files: () => ({ folder: "C:\\Users\\us\\AppData\\Roaming\\open-rzr\\devices", files: [
       { file: "C:\\x\\devices\\viper.toml", pid: 0x007a, name: "Razer Viper (mine)", base: "openrazer", error: "", warnings: ["unknown key “colour” (ignored)"] },
       { file: "C:\\x\\devices\\bad.json", pid: 0, name: "", base: "", error: "line 3: expected `,` or `}`", warnings: [] }] }),
+    // ?firstrun: as on a new computer (agreement and update question not answered yet)
+    first_run: () => ({ agreement_edition: 2, agreement_accepted: !!st.agreed || !window.__FIRSTRUN__, updates: st.updates === undefined ? (window.__FIRSTRUN__ ? null : false) : st.updates }),
+    agreement_accept: () => { st.agreed = true; return null; },
+    agreement_decline: () => { st.quit = true; return null; },
+    set_updates: ({ enabled }) => { st.updates = enabled; return null; },
+    update_due: () => !!st.updates,
+    update_checked: ({ result }) => { st.updateResult = result; return null; },
+    update_skip: ({ version }) => { st.skipped = version; return null; },
+    open_project_page: ({ url }) => { st.opened = url; return null; },
+    removal_info: () => ({ uninstaller: window.__INSTALLED__ ? "C:\\Users\\u\\AppData\\Local\\open-rzr\\uninstall.exe" : null, package: false,
+      program: "C:\\Tools\\open-rzr", autostart: !!st.auto.enabled, udev_rule: false, razer_stopped: true,
+      data_dir: "C:\\Users\\u\\AppData\\Roaming\\open-rzr", data_dirs: ["C:\\Users\\u\\AppData\\Roaming\\open-rzr", "C:\\Users\\u\\AppData\\Local\\io.github.aspidovss.openrzr"] }),
+    run_uninstaller: () => { st.uninstaller = true; st.quit = true; return null; },
+    remove_from_computer: ({ startRazer }) => { st.removed = { startRazer }; st.auto = { enabled: false, minimized: false }; return null; },
+    remove_finish: ({ deleteData, openFolder }) => { st.finish = { deleteData, openFolder }; st.quit = true; return null; },
     razer_drivers: () => [
       { device: "Razer Naga Pro", instance: "HID\\VID_1532&PID_008F&MI_00\\8&1", provider: "Razer Inc", version: "10.0.15063.0", inf: "oem42.inf", service: "mouhid", filters: "", razer: true },
       { device: "USB Input Device", instance: "USB\\VID_1532&PID_008F&MI_00\\7&3", provider: "Microsoft", version: "10.0.26100.1", inf: "input.inf", service: "HidUsb", filters: "", razer: false }],

@@ -13,3 +13,4 @@ pub(crate) mod profiles;
 pub(crate) mod backup;
 pub(crate) mod diagnostics;
 pub(crate) mod tables;
+pub(crate) mod removal;

@@ -6,7 +6,7 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 
 ![open-rzr — Customize](ui/docs/images/customize.png)
 
-- **No analytics, no telemetry, no accounts.** The program never talks to the network.
+- **No analytics, no telemetry, no accounts.** The only network request is an optional check for new versions on GitHub, which you can turn off (the program asks at first start).
 - **Settings stay in the mouse.** Bindings, DPI stages, macros and lighting are written to the on-board memory and work without the program, on any computer.
 - **Light in the background.** Closed to the tray it takes about **7 MB**: the window and its WebView are closed completely, only the tray, automatic profile switching and macro actions keep running.
 - **Always-on local log** of every action and USB packet — one click makes a report.
@@ -15,6 +15,8 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 - **Works alongside OpenRazer and Polychromatic** on Linux.
 
 > Independent project, not affiliated with Razer Inc. No Synapse code is used.
+>
+> Parts of the code and documentation were created with the help of AI tools and reviewed by the author. See the user agreement (`ui/legal/eula.en.txt`).
 
 ## Features
 
@@ -71,6 +73,13 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 [-Installer
 ```
 
 Requirements and details: [Building and contributing](ui/docs/en/building.md).
+
+### Uninstall
+
+- **Installer (Windows):** Settings → Apps → open-rzr → Uninstall. The uninstaller closes the program (also from the tray) and removes its autostart entry. Your settings, profile library and logs in `%APPDATA%\open-rzr` are kept unless you tick "Delete the application data".
+- **Portable / AppImage / Linux:** Settings → "Remove from this computer". It turns off autostart, removes the udev rule it installed, can start the Razer services again and delete your data (`%APPDATA%\open-rzr` or `~/.config/open-rzr`), then quits; delete the program files yourself. The .deb package is removed with the package manager, together with its udev rule.
+
+Settings already written to the mouse stay in the mouse. If you kept the Razer services from starting with Windows, start them again (Settings → Razer Synapse) before running the installer's uninstaller — it does not change them.
 
 ## Project layout
 
