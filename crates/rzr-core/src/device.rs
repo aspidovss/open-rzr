@@ -57,6 +57,8 @@ pub struct RazerMouse {
     pub experimental: u32,
     /// Zones whose brightness the mouse cannot report (it answers FAIL): not asked again.
     pub(crate) brightness_unreadable: Vec<&'static str>,
+    /// Talks over the Razer GATT service of Bluetooth (`wireless::BleBridge`): read-only.
+    pub ble: bool,
 }
 
 pub(crate) fn hexs(b: &[u8]) -> String {
@@ -96,6 +98,7 @@ impl RazerMouse {
             openrazer,
             experimental: 0,
             brightness_unreadable: Vec::new(),
+            ble: false,
         }
     }
 
@@ -138,13 +141,37 @@ impl RazerMouse {
                     return Ok(m);
                 }
                 Err(e) => {
-                    log_warn!("device", "{} does not answer: {e}", info.path);
+                    // over Bluetooth the HID collections usually carry input only: expected
+                    if info.bluetooth {
+                        log_debug!("device", "{} does not answer: {e}", info.path);
+                    } else {
+                        log_warn!("device", "{} does not answer: {e}", info.path);
+                    }
                     errors.push(format!("{}: {e}", info.path));
                 }
             }
         }
         if candidates.is_empty() {
             errors.push("no Razer devices found".into());
+        }
+        // Bluetooth: the settings go through the Razer GATT service instead (read-only so far)
+        if let Some((info, address)) = candidates.iter().find_map(|c| crate::wireless::address_from_path(&c.path).map(|a| (c, a))) {
+            log_info!("device", "Bluetooth: no HID collection answers the control reports; trying the Razer GATT service of {address}");
+            crate::wireless::close_session(); // a fresh session: the old one may belong to an earlier connection
+            let mut m = RazerMouse::with_transport(info, Box::new(crate::wireless::BleBridge::new(&address)), None);
+            m.features &= crate::wireless::BLE_FEATURES;
+            m.ble = true;
+            match m.firmware() {
+                Ok(fw) => {
+                    log_info!("device", "connected over Bluetooth: {} — firmware {fw}; features: {}; can change: {}", m.spec.name, devices::feat::names(m.features).join(", "), devices::feat::names(m.features & crate::wireless::BLE_WRITES).join(", "));
+                    return Ok(m);
+                }
+                Err(e) => {
+                    log_warn!("device", "the Razer GATT service does not answer: {e}");
+                    crate::wireless::close_session();
+                    errors.push(format!("GATT {address}: {e}"));
+                }
+            }
         }
         if candidates.iter().any(|c| c.bluetooth || devices::spec_for(c.pid).is_some_and(|s| s.bluetooth)) {
             log_warn!("device", "Bluetooth: no HID collection answered the control reports");

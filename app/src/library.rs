@@ -103,7 +103,10 @@ pub fn load(id: &str) -> Result<Profile, String> {
 }
 
 pub fn save(p: &Profile) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(p).map_err(|e| e.to_string())?;
+    // software entries of buttons bound to something else since are dropped
+    let mut p = p.clone();
+    p.prune_soft();
+    let text = serde_json::to_string_pretty(&p).map_err(|e| e.to_string())?;
     write_safely(&path(&p.id), text.as_bytes(), true).map_err(|e| format!("[io] {e}"))
 }
 
@@ -142,6 +145,8 @@ pub fn add(mut p: Profile) -> Result<Profile, String> {
     p.id = new_id(&p.name);
     p.format = profile::FORMAT.into();
     p.version = profile::VERSION;
+    // a copy does not take over the software buttons (their trigger keys belong to the original)
+    p.soft.clear();
     save(&p)?;
     openrzr::log_info!("app", "profile added: \"{}\" ({})", p.name, p.id);
     Ok(p)

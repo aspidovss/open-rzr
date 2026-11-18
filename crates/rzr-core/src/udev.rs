@@ -10,15 +10,18 @@ pub const RULE_PATH: &str = "/etc/udev/rules.d/99-open-rzr.rules";
 pub fn rule_text() -> String {
     let mut s = String::from(
         "# open-rzr: access to Razer mouse HID control for the logged-in user;\n\
-         # input lines: read the mouse's own key events (F13-F24 triggers of macro program actions)\n",
+         # input lines: read the mouse's own key events (F13-F24 triggers of macro program actions)\n\
+         # uinput: send keys, mouse buttons and media keys of program actions (software profile)\n\
+         KERNEL==\"uinput\", SUBSYSTEM==\"misc\", TAG+=\"uaccess\", OPTIONS+=\"static_node=uinput\"\n",
     );
     for d in devices::all() {
         s += &format!("# {}\n", d.name);
         if d.bluetooth {
             // Bluetooth devices have no USB attributes: match the HID device name (bus 0005)
             s += &format!(
-                "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"0005:{:04X}:{:04X}.*\", TAG+=\"uaccess\"\n",
-                RAZER_VID, d.pid
+                "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"0005:{:04X}:{:04X}.*\", TAG+=\"uaccess\"\n\
+                 KERNEL==\"event*\", SUBSYSTEM==\"input\", KERNELS==\"0005:{:04X}:{:04X}.*\", TAG+=\"uaccess\"\n",
+                RAZER_VID, d.pid, RAZER_VID, d.pid
             );
             continue;
         }

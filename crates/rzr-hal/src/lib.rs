@@ -10,6 +10,16 @@
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The version as shown: four numbers, "0.8.1.1". Cargo keeps the fourth one as build metadata
+/// ("0.8.1+1"): major (big changes) . minor (new features) . patch (fixes) . optional update
+/// (intermediate, device support).
+pub fn version() -> String {
+    match VERSION.split_once('+') {
+        Some((v, b)) => format!("{v}.{b}"),
+        None => format!("{VERSION}.0"),
+    }
+}
+
 /// USB vendor id of Razer.
 pub const RAZER_VID: u16 = 0x1532;
 

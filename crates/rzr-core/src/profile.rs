@@ -7,10 +7,22 @@ use std::collections::BTreeMap;
 use crate::bindings::Action;
 use crate::features::dpi::DpiStages;
 use crate::lighting::ZoneState;
+use crate::macro_doc::SoftAction;
 use crate::macros::MacroStep;
 
 pub const FORMAT: &str = "open-rzr-profile";
 pub const VERSION: u32 = 1;
+
+/// A button run by open-rzr itself (a "software" profile): in the mouse it sends `trigger`
+/// (F13–F24), and the program performs `actions` while it runs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json", serde(default))]
+pub struct SoftButton {
+    /// HID code of F13..F24
+    pub trigger: u8,
+    pub actions: Vec<SoftAction>,
+}
 
 /// Binding of one button in both layers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -43,6 +55,10 @@ pub struct Profile {
     pub macros: BTreeMap<String, Vec<MacroStep>>,
     /// programs that switch to this profile (file names like "game.exe", or full paths)
     pub links: Vec<String>,
+    /// a "software" profile: some buttons are run by open-rzr (see `soft`)
+    pub software: bool,
+    /// button id as "0x40" -> what open-rzr does when it is pressed (standard layer only)
+    pub soft: BTreeMap<String, SoftButton>,
 }
 
 impl Default for Profile {
@@ -60,6 +76,8 @@ impl Default for Profile {
             lighting: BTreeMap::new(),
             macros: BTreeMap::new(),
             links: Vec::new(),
+            software: false,
+            soft: BTreeMap::new(),
         }
     }
 }
@@ -84,6 +102,22 @@ impl Profile {
         } else {
             e.normal = a;
         }
+    }
+
+    /// Software buttons that are still bound to their trigger key in the standard layer
+    /// (a button bound to something else since is no longer run by the program).
+    pub fn active_soft(&self) -> Vec<(u8, &SoftButton)> {
+        self.soft
+            .iter()
+            .filter(|(k, sb)| self.buttons.get(*k).is_some_and(|p| p.normal == Action::keyboard(0, sb.trigger)))
+            .filter_map(|(k, sb)| Some((parse_key(k)?, sb)))
+            .collect()
+    }
+
+    /// Drop the software entries of buttons bound to something else.
+    pub fn prune_soft(&mut self) {
+        let keep: Vec<String> = self.active_soft().into_iter().map(|(id, _)| key(id)).collect();
+        self.soft.retain(|k, _| keep.contains(k));
     }
 
     /// Macro ids used by the bindings.
@@ -115,6 +149,7 @@ impl Profile {
             }
         }
         self.macros.clear();
+        self.soft.clear();
     }
 
     /// Buttons that hold Hypershift (their standard binding is "hypershift").
@@ -193,6 +228,24 @@ pub fn slug(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn soft_buttons() {
+        let mut p = Profile::default();
+        p.set(0x40, false, Action::keyboard(0, 0x68));
+        p.set(0x41, false, Action::keyboard(0, 0x1e));
+        p.soft.insert(key(0x40), SoftButton { trigger: 0x68, actions: vec![SoftAction::new("type", "hi")] });
+        p.soft.insert(key(0x41), SoftButton { trigger: 0x69, actions: vec![SoftAction::new("type", "x")] });
+        assert_eq!(p.active_soft().iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![0x40]);
+        p.prune_soft();
+        assert_eq!(p.soft.len(), 1);
+        #[cfg(feature = "json")]
+        {
+            // older files without the new fields still load
+            let old: Profile = serde_json::from_str(r#"{"name":"x","buttons":{}}"#).unwrap();
+            assert!(!old.software && old.soft.is_empty());
+        }
+    }
 
     #[test]
     fn links_and_slug() {

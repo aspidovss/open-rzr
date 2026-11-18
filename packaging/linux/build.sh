@@ -8,6 +8,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 VER=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+# four numbers in file names: Cargo keeps the fourth as build metadata ("0.8.1+1" -> "0.8.1.1")
+case "$VER" in *+*) VER="${VER/+/.}" ;; *) VER="$VER.0" ;; esac
 
 echo "== tests (protocol, hal, devices, core, cli)"
 cargo test -p rzr-protocol -p rzr-hal -p rzr-devices -p rzr-core -p rzr-cli --release

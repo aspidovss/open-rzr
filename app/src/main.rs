@@ -49,6 +49,8 @@ struct AppState {
     hotplug: AtomicBool,
     /// what was last written to the temporary layer (to write only differences)
     temp_layer: Mutex<Option<Profile>>,
+    /// last active on-board profile seen (logged only when it changes)
+    active_slot: Mutex<Option<u8>>,
     /// program actions of macros: trigger key -> (macro, actions)
     actions: program_actions::Table,
     /// One profile operation at a time (edits from the window, the automatic switch, writes):
@@ -230,6 +232,7 @@ fn main() {
         mock,
         hotplug: AtomicBool::new(false),
         temp_layer: Mutex::new(None),
+        active_slot: Mutex::new(None),
         profile_op: Mutex::new(()),
         closing: Mutex::new(None),
         geometry: Mutex::new(None),
@@ -323,9 +326,9 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::device::app_info, commands::device::list_devices, commands::device::connect, commands::device::battery, commands::razer::install_udev,
+            commands::device::app_info, commands::device::list_devices, commands::device::connect, commands::device::battery, commands::razer::install_udev, commands::razer::udev_state,
             commands::performance::set_dpi_stages, commands::performance::get_dpi_stages, commands::performance::set_polling, commands::performance::set_power,
-            commands::buttons::scan_buttons, commands::buttons::button_names, commands::buttons::side_plate, commands::buttons::set_plate_choice, commands::buttons::set_button, commands::buttons::rename_button, commands::buttons::copy_profile, commands::buttons::describe_action,
+            commands::buttons::scan_buttons, commands::buttons::button_names, commands::buttons::side_plate, commands::buttons::active_slot, commands::buttons::set_plate_choice, commands::buttons::set_button, commands::buttons::rename_button, commands::buttons::copy_profile, commands::buttons::describe_action,
             commands::macro_cmds::macros_on_mouse, commands::macro_cmds::write_macro, commands::macro_cmds::delete_macro, commands::macro_cmds::macro_library, commands::macro_cmds::save_macro_lib,
             commands::macro_cmds::delete_macro_lib, commands::macro_cmds::describe_steps, commands::macro_cmds::check_macro, commands::macro_cmds::rename_macro_lib, commands::macro_cmds::test_program_actions,
             commands::macro_cmds::program_actions_status,
@@ -335,11 +338,11 @@ fn main() {
             commands::tables::tables, commands::settings::get_settings, commands::settings::set_language, commands::settings::set_autostart, commands::settings::set_close_to_tray, commands::settings::default_action, commands::razer::quit_app,
             commands::openrazer_cmds::openrazer_status, commands::openrazer_cmds::set_openrazer_mode, commands::openrazer_cmds::stop_openrazer_daemon, commands::razer::supported_devices,
             commands::razer::razer_software, commands::razer::stop_razer_software, commands::razer::start_razer_software,
-            commands::profiles::profiles, commands::profiles::profile_get, commands::profiles::profile_select, commands::profiles::profile_set_button, commands::profiles::profile_layer, commands::profiles::profile_write, commands::profiles::set_autowrite, commands::diagnostics::all_hid_devices, commands::diagnostics::razer_drivers, commands::diagnostics::wireless_debug, commands::diagnostics::wireless_gatt, commands::diagnostics::device_files, commands::profiles::turbo_media, commands::profiles::profile_set_dpi, commands::profiles::profile_create,
+            commands::profiles::profiles, commands::profiles::profile_get, commands::profiles::profile_select, commands::profiles::profile_set_button, commands::profiles::profile_layer, commands::profiles::profile_write, commands::profiles::set_autowrite, commands::diagnostics::all_hid_devices, commands::diagnostics::razer_drivers, commands::diagnostics::wireless_debug, commands::diagnostics::wireless_gatt, commands::diagnostics::ble_get, commands::diagnostics::ble_selftest, commands::device::ble_bindings, commands::diagnostics::device_files, commands::profiles::turbo_media, commands::profiles::profile_set_dpi, commands::profiles::profile_create,
             commands::profiles::profile_rename, commands::profiles::profile_duplicate, commands::profiles::profile_delete, commands::profiles::profile_reset, commands::profiles::profile_reload,
             commands::profiles::profile_export, commands::profiles::profile_import, commands::profiles::open_folder_of, commands::profiles::slot_assign, commands::profiles::profile_links,
             commands::profiles::running_programs, commands::profiles::set_autoswitch, commands::settings::set_ui_style, commands::openrazer_cmds::open_polychromatic,
-            hide_to_tray, close_cancelled, ui_state_get, ui_state_set, commands::profiles::profile_restore, commands::settings::first_run, commands::settings::agreement_accept, commands::settings::agreement_decline, commands::settings::set_updates, commands::settings::update_due, commands::settings::update_checked, commands::settings::update_skip, commands::settings::open_project_page, commands::removal::removal_info, commands::removal::run_uninstaller, commands::removal::remove_from_computer, commands::removal::remove_finish
+            hide_to_tray, close_cancelled, ui_state_get, ui_state_set, commands::profiles::profile_restore, commands::profiles::profile_set_soft, commands::profiles::slot_create, commands::profiles::slot_delete, commands::profiles::profile_set_software, commands::settings::first_run, commands::settings::agreement_accept, commands::settings::agreement_decline, commands::settings::set_updates, commands::settings::set_updates_optional, commands::settings::set_side_list, commands::settings::update_due, commands::settings::update_checked, commands::settings::update_skip, commands::settings::open_project_page, commands::removal::removal_info, commands::removal::run_uninstaller, commands::removal::remove_from_computer, commands::removal::remove_finish
         ])
         .build(tauri::generate_context!())
         .map(|app| {

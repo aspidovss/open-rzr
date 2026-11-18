@@ -31,6 +31,8 @@ Step "build open-rzr.exe + open-rzr-cli.exe + orzr-cli.exe"
 cargo build --release -p rzr-cli -p open-rzr; Check
 
 $ver = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+# four numbers in file names: Cargo keeps the fourth as build metadata ("0.8.1+1" -> "0.8.1.1")
+if ($ver -match '\+') { $ver = $ver -replace '\+', '.' } else { $ver = "$ver.0" }
 Step "smoke test $ver"
 & .\target\release\open-rzr-cli.exe version; Check
 & .\target\release\open-rzr-cli.exe --mock info; Check

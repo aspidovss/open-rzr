@@ -118,6 +118,29 @@ pub fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// A list of bytes in hex with ranges: "0b", "00-1f", "80-9f, a0" (at most 256 values).
+pub fn parse_byte_list(s: &str) -> Result<Vec<u8>, String> {
+    let mut v = Vec::new();
+    for part in s.split([',', ' ', ';']).map(str::trim).filter(|p| !p.is_empty()) {
+        let byte = |x: &str| u8::from_str_radix(x.trim().trim_start_matches("0x"), 16).map_err(|_| format!("not a hex byte: “{x}”"));
+        match part.split_once('-') {
+            Some((a, b)) => {
+                let (a, b) = (byte(a)?, byte(b)?);
+                if a > b {
+                    return Err(format!("range “{part}” goes backwards"));
+                }
+                v.extend(a..=b);
+            }
+            None => v.push(byte(part)?),
+        }
+    }
+    v.dedup();
+    if v.is_empty() || v.len() > 256 {
+        return Err("give 1..256 values".into());
+    }
+    Ok(v)
+}
+
 /// Bluetooth address of the first Razer device connected over Bluetooth.
 fn bt_address() -> Option<(String, u16)> {
     crate::transport::enumerate(false).into_iter().filter(|d| d.bluetooth).find_map(|d| address_from_path(&d.path).map(|a| (a, d.pid)))
@@ -148,7 +171,33 @@ pub fn gatt_exchange(request: &str, listen_ms: u32) -> Exchange {
     };
     x.request = hex(&bytes, 512);
     log_info!("app", "BT GATT exchange with {address}: write [{}], listen {listen_ms} ms", x.request);
-    imp::exchange(&address, &bytes, listen_ms.clamp(100, 10_000), &mut x);
+    let r = with_session(&address, |s| {
+        let mut ok = true;
+        if !bytes.is_empty() {
+            let r = s.write(&bytes);
+            ok = r.is_ok() || r.as_ref().is_err_and(|e| e.contains("ATT"));
+            s.steps.push(format!("write {} bytes to 52401524-f97c-7f90-0e7f-6c6f4e36db1c: {}", bytes.len(), r.err().unwrap_or_else(|| "OK".into())));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(listen_ms.clamp(100, 10_000) as u64));
+        let mut notes = Vec::new();
+        for (t, handle, uuid, b) in s.take() {
+            notes.push(Notification { t_ms: t.saturating_duration_since(s.start).as_millis() as u64, handle, uuid, hex: hex(&b, 128), len: b.len() });
+        }
+        let reads = s.read_all();
+        let mut steps = std::mem::take(&mut s.steps);
+        steps.extend(reads);
+        ((steps, notes), ok)
+    });
+    match r {
+        Ok((steps, notes)) => {
+            x.steps = steps;
+            x.notifications = notes;
+        }
+        Err((e, steps)) => {
+            x.steps = steps;
+            x.error = e;
+        }
+    }
     for s in &x.steps {
         log_info!("app", "BT GATT   {s}");
     }
@@ -159,6 +208,826 @@ pub fn gatt_exchange(request: &str, listen_ms: u32) -> Exchange {
         log_info!("app", "BT GATT   error: {}", x.error);
     }
     x
+}
+
+/// One subscribed session to the Razer service, kept open and shared by the connected mouse
+/// (`BleBridge`) and Diagnostics; the mutex also makes the conversations one at a time (the
+/// notification queue is shared).
+static SESSION: std::sync::Mutex<Option<(String, imp::Session)>> = std::sync::Mutex::new(None);
+
+/// Run `f` on the open session to `address` (opened first if needed). `f` returns whether the
+/// session still works; a broken one is closed, and the next call opens a new one.
+fn with_session<T>(address: &str, f: impl FnOnce(&mut imp::Session) -> (T, bool)) -> Result<T, (String, Vec<String>)> {
+    let mut g = SESSION.lock().unwrap_or_else(|e| e.into_inner());
+    if g.as_ref().is_some_and(|(a, _)| a != address) {
+        *g = None;
+    }
+    let mut opened = Vec::new();
+    if g.is_none() {
+        let s = imp::Session::open(address)?;
+        opened = s.steps.clone();
+        log_info!("app", "BT: session to the Razer service of {address} opened");
+        *g = Some((address.to_string(), s));
+    }
+    let Some((_, s)) = g.as_mut() else {
+        return Err(("no session".into(), opened));
+    };
+    s.steps = opened;
+    let (v, ok) = f(s);
+    if !ok {
+        log_info!("app", "BT: session closed (the mouse stopped answering)");
+        *g = None;
+    }
+    Ok(v)
+}
+
+/// Close the shared session (the mouse was disconnected).
+pub fn close_session() {
+    *SESSION.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Request numbers of the Bluetooth protocol: 1..=255, never 0, different for each request.
+fn next_tid() -> u8 {
+    static TID: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0x10);
+    loop {
+        let t = TID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if t != 0 {
+            return t;
+        }
+    }
+}
+
+/// One "get" command over Bluetooth and its reply.
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
+pub struct BleResult {
+    pub class: u8,
+    pub cmd: u8,
+    /// sub1 sub2 in hex
+    pub sub: String,
+    /// 0 = no reply
+    pub status: u8,
+    pub status_name: String,
+    pub len: usize,
+    pub data: String,
+    /// what the data means, for known commands
+    pub meaning: String,
+    pub ms: u64,
+    pub error: String,
+    /// the data as bytes (for the bridge)
+    #[cfg_attr(feature = "json", serde(skip))]
+    pub raw: Vec<u8>,
+}
+
+/// Send one request on an open session and wait for its reply (at most `timeout_ms`).
+fn ble_ask(s: &mut imp::Session, class: u8, cmd: u8, sub: [u8; 2], timeout_ms: u64) -> BleResult {
+    // BUSY (01): the mouse is still doing something — ask again, a few times
+    let mut r = ble_ask_once(s, class, cmd, sub, timeout_ms);
+    for _ in 0..3 {
+        if r.status != crate::protocol::status::BUSY {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let ms = r.ms;
+        r = ble_ask_once(s, class, cmd, sub, timeout_ms);
+        r.ms += ms + 150;
+    }
+    r
+}
+
+fn ble_ask_once(s: &mut imp::Session, class: u8, cmd: u8, sub: [u8; 2], timeout_ms: u64) -> BleResult {
+    ble_send(s, class, cmd, sub, &[], false, timeout_ms)
+}
+
+/// Send a request (with `payload` for a "set": in a second write after the header, or in the
+/// same write when `combined`) and wait for its reply.
+fn ble_send(s: &mut imp::Session, class: u8, cmd: u8, sub: [u8; 2], payload: &[u8], combined: bool, timeout_ms: u64) -> BleResult {
+    let mut r = BleResult { class, cmd, sub: hex(&sub, 2), ..Default::default() };
+    let tid = next_tid();
+    let t0 = std::time::Instant::now();
+    s.take(); // drop what is left of earlier requests
+    let head = crate::ble::header(tid, payload.len() as u8, class, cmd, sub);
+    let writes: Vec<Vec<u8>> = if payload.is_empty() {
+        vec![head.to_vec()]
+    } else if combined {
+        vec![[&head[..], payload].concat()]
+    } else {
+        vec![head.to_vec(), payload.to_vec()]
+    };
+    for w in &writes {
+        if let Err(e) = s.write(w) {
+            r.error = format!("write [{}]: {e}", hex(w, 32));
+            r.ms = t0.elapsed().as_millis() as u64;
+            return r;
+        }
+    }
+    let mut notes: Vec<Vec<u8>> = Vec::new();
+    let mut seen = Vec::new();
+    // long replies (480 bytes = 24 notifications) keep the request open while data still comes
+    let mut last = t0;
+    let hard = std::time::Duration::from_millis(5000);
+    loop {
+        // replies come on …1525; …1526 sends something else (8 bytes)
+        for n in s.take() {
+            last = std::time::Instant::now();
+            seen.push(format!("{} {}", if n.2.is_empty() { format!("handle {}", n.1) } else { n.2.chars().take(8).collect::<String>() }, hex(&n.3, 20)));
+            if !n.2.starts_with("52401526") {
+                notes.push(n.3);
+            }
+        }
+        let quiet = last.elapsed().as_millis() as u64 >= 300 && t0.elapsed().as_millis() as u64 >= timeout_ms;
+        let over = quiet || t0.elapsed() >= hard;
+        if let Some(rep) = crate::ble::assemble(&notes, tid) {
+            if rep.complete() || over {
+                r.status = rep.status;
+                r.status_name = rep.status_name().into();
+                r.len = rep.len;
+                r.data = hex(&rep.data, 4096);
+                r.raw = rep.data.clone();
+                r.meaning = crate::ble::describe(class, cmd, sub, &rep);
+                if !rep.complete() {
+                    r.error = format!("only {} of {} bytes arrived", rep.data.len(), rep.len);
+                }
+                break;
+            }
+        } else if over {
+            seen.truncate(6);
+            r.error = if seen.is_empty() { "no reply: no notifications".into() } else { format!("no reply to request {tid:02x}; got: {}", seen.join(" | ")) };
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    r.ms = t0.elapsed().as_millis() as u64;
+    r
+}
+
+/// Send "get" commands over Bluetooth: every class × command × sub given (commands without
+/// bit 7 — "set" — are refused, so nothing in the mouse can change).
+pub fn ble_get(classes: &[u8], cmds: &[u8], subs: &[[u8; 2]]) -> Result<Vec<BleResult>, String> {
+    if let Some(c) = cmds.iter().find(|c| !crate::ble::is_get(**c)) {
+        return Err(format!("command {c:02x} is not a “get” (bit 7 not set): refused"));
+    }
+    let (address, _) = bt_address().ok_or("No Razer device is connected over Bluetooth.")?;
+    with_session(&address, |s| {
+        let out = ble_get_on(s, classes, cmds, subs);
+        let ok = !out.last().is_some_and(|r| r.status == 0 && !r.error.is_empty());
+        (out, ok)
+    })
+    .map_err(|(e, _)| e)
+}
+
+fn ble_get_on(s: &mut imp::Session, classes: &[u8], cmds: &[u8], subs: &[[u8; 2]]) -> Vec<BleResult> {
+    let mut out = Vec::new();
+    let mut silent = 0;
+    'all: for &class in classes {
+        for &cmd in cmds {
+            for &sub in subs {
+                let r = ble_ask(s, class, cmd, sub, 400);
+                log_info!(
+                    "app",
+                    "BT get {class:02x} {cmd:02x} {}: {} {} [{}] {}{}",
+                    r.sub,
+                    if r.status == 0 { "—".to_string() } else { format!("{:02x}", r.status) },
+                    r.status_name,
+                    r.data,
+                    r.meaning,
+                    if r.error.is_empty() { String::new() } else { format!(" ({})", r.error) }
+                );
+                silent = if r.status == 0 { silent + 1 } else { 0 };
+                out.push(r);
+                if silent >= 5 {
+                    log_warn!("app", "BT get: the mouse stopped answering after {} requests", out.len());
+                    out.push(BleResult { error: "the mouse stopped answering — stopped here".into(), ..Default::default() });
+                    break 'all;
+                }
+            }
+        }
+    }
+    out
+}
+
+// ------------------------------------------------------------------ write self-test
+
+/// One step of the Bluetooth write self-test (Diagnostics → Wireless).
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
+pub struct TestReport {
+    pub ok: bool,
+    /// the way of writing that worked (see [`WRITE_WAYS`]), for the next steps
+    pub way: Option<u8>,
+    /// "button_change": the record read back equals the one written
+    pub same: Option<bool>,
+    pub lines: Vec<String>,
+}
+
+/// Ways to send a "set", tried in this order: (sub1 of the button commands, combined in one write).
+pub const WRITE_WAYS: [(u8, bool); 4] = [(0, false), (1, false), (0, true), (1, true)];
+
+/// The test button: side button 12 (12-button plate) — "=" by default.
+pub const TEST_BUTTON: u8 = 0x4b;
+
+/// The binding of the test button before step 3, to put back.
+static ORIGINAL: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+
+/// The action "key 7" (HID 0x24): a digit types the same on every keyboard layout.
+const KEY_7: [u8; 7] = [0x02, 0x02, 0x00, 0x24, 0, 0, 0];
+
+/// The test button in profiles 0..=5 as read by the "targets" step, to put back.
+static ORIG_T: std::sync::Mutex<[Option<Vec<u8>>; 6]> = std::sync::Mutex::new([None, None, None, None, None, None]);
+
+/// Data of a button "set" into profile `tg`: profile, button, layer (0 normal), 7-byte action.
+pub fn target_payload(tg: u8, btn: u8, layer: u8, block: &[u8]) -> Vec<u8> {
+    [&[tg, btn, layer][..], &pad7(block)].concat()
+}
+
+/// "normal key 09 · Hypershift mouse 01" for a 16-byte button record.
+fn target_text(rec: &[u8]) -> String {
+    match crate::ble::binding(rec) {
+        Some((_, [n, h])) => format!("normal {} · Hypershift {} [{}]", crate::ble::action_text(&n), crate::ble::action_text(&h), hex(rec, 16)),
+        None => hex(rec, 16),
+    }
+}
+
+fn line(t: &mut TestReport, r: &BleResult, what: &str) {
+    let st = if r.status == 0 { "no reply".to_string() } else { format!("{:02x} {}", r.status, r.status_name) };
+    let msg = format!(
+        "{what}: {:02x} {:02x} sub {} → {st}{}{}",
+        r.class,
+        r.cmd,
+        r.sub,
+        if r.data.is_empty() { String::new() } else { format!(" [{}]", r.data) },
+        if r.error.is_empty() { String::new() } else { format!(" ({})", r.error) }
+    );
+    log_info!("app", "BT self-test {msg}");
+    t.lines.push(msg);
+}
+
+fn note(t: &mut TestReport, msg: String) {
+    log_info!("app", "BT self-test {msg}");
+    t.lines.push(msg);
+}
+
+/// Binding record of one button over Bluetooth (16 bytes).
+fn read_button(s: &mut imp::Session, t: &mut TestReport, id: u8) -> Option<Vec<u8>> {
+    let r = ble_ask(s, 0x08, 0x84, [0, id], 600);
+    line(t, &r, "read button");
+    (r.status == crate::protocol::status::OK && r.raw.len() >= 16).then(|| r.raw[..16].to_vec())
+}
+
+/// Write a button record with way `w`; true when the mouse answered OK.
+fn write_button(s: &mut imp::Session, t: &mut TestReport, rec: &[u8], w: u8) -> bool {
+    let (sub1, combined) = WRITE_WAYS[w as usize % WRITE_WAYS.len()];
+    let r = ble_send(s, 0x08, 0x04, [sub1, rec[0]], rec, combined, 600);
+    line(t, &r, &format!("write button (way {w}: sub1 {sub1:02x}, {})", if combined { "one write" } else { "header + data" }));
+    r.status == crate::protocol::status::OK
+}
+
+/// The test button with its normal action replaced by the key "F" (Hypershift kept).
+pub fn with_key_f(rec: &[u8]) -> Vec<u8> {
+    let mut v = rec.to_vec();
+    v.resize(16, 0);
+    v[2] = 0x02; // keyboard
+    v[4] = 0x02; // 2 bytes: modifiers, key
+    for i in 0..5 {
+        v[6 + 2 * i] = 0;
+    }
+    v[8] = 0x09; // F
+    v
+}
+
+/// Ways to lay out a button "set" (stage 3 of the self-test tries them one by one).
+/// `n`, `h`: the normal and the Hypershift record `[type, len, data…]` padded to 7 bytes.
+pub const BUTTON_LAYOUTS: &[&str] = &[
+    "interleaved 16 bytes, sub 00 <btn>",
+    "normal record only (7 bytes), sub 00 <btn>",
+    "button, layer 00, record (9 bytes), sub 00 <btn>",
+    "USB arguments: profile 01, button, layer 00, record (10 bytes), sub 01 <btn>",
+    "interleaved 16 bytes, sub 00 00",
+    "interleaved 16 bytes, sub <btn> 00",
+    "interleaved without button and 01 (14 bytes), sub 00 <btn>",
+    "button, record (8 bytes), sub 00 00",
+];
+
+fn pad7(v: &[u8]) -> Vec<u8> {
+    let mut r = v.iter().copied().take(7).collect::<Vec<_>>();
+    r.resize(7, 0);
+    r
+}
+
+/// The interleaved 16-byte record of `btn` from its two layers.
+pub fn interleave(btn: u8, n: &[u8], h: &[u8]) -> Vec<u8> {
+    let (n, h) = (pad7(n), pad7(h));
+    let mut v = vec![btn, 1, n[0], h[0], n[1], h[1]];
+    for i in 0..5 {
+        v.push(n[2 + i]);
+        v.push(h[2 + i]);
+    }
+    v
+}
+
+/// (sub, payload) of layout `l` for setting `btn` to normal `n`, Hypershift `h`.
+pub fn button_layout(l: usize, btn: u8, n: &[u8], h: &[u8]) -> ([u8; 2], Vec<u8>) {
+    let il = interleave(btn, n, h);
+    match l {
+        1 => ([0, btn], pad7(n)),
+        2 => ([0, btn], [&[btn, 0][..], &pad7(n)].concat()),
+        3 => ([1, btn], [&[1, btn, 0][..], &pad7(n)].concat()),
+        4 => ([0, 0], il),
+        5 => ([btn, 0], il),
+        6 => ([0, btn], il[2..].to_vec()),
+        7 => ([0, 0], [&[btn][..], &pad7(n)].concat()),
+        _ => ([0, btn], il),
+    }
+}
+
+/// Run one step: "sleep" (write the sleep timer, read it back, put it back), "button_same"
+/// (write the test button's own binding back), "button_change" (normal action → key F),
+/// "button_restore". `way` = the way that worked in "button_same".
+pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestReport, String> {
+    let (address, _) = bt_address().ok_or("No Razer device is connected over Bluetooth.")?;
+    log_info!("app", "BT self-test: {step}");
+    with_session(&address, |s| {
+        let mut t = TestReport::default();
+        match step {
+            "sleep" => {
+                let r = ble_ask(s, 0x05, 0x84, [0, 0], 600);
+                line(&mut t, &r, "read sleep timer");
+                let Some(orig) = (r.status == 2 && r.raw.len() >= 2).then(|| u16::from_le_bytes([r.raw[0], r.raw[1]])) else {
+                    note(&mut t, "cannot read the sleep timer — stopped".into());
+                    return (t, true);
+                };
+                let new: u16 = if orig == 360 { 300 } else { 360 };
+                note(&mut t, format!("sleep timer {orig} s; trying to set {new} s"));
+                for (w, &(_, combined)) in WRITE_WAYS.iter().enumerate().filter(|(_, x)| x.0 == 0) {
+                    let r = ble_send(s, 0x05, 0x04, [0, 0], &new.to_le_bytes(), combined, 600);
+                    line(&mut t, &r, &format!("set sleep timer (way {w}: {})", if combined { "one write" } else { "header + data" }));
+                    let back = ble_ask(s, 0x05, 0x84, [0, 0], 600);
+                    line(&mut t, &back, "read back");
+                    let now = (back.raw.len() >= 2).then(|| u16::from_le_bytes([back.raw[0], back.raw[1]]));
+                    if now == Some(new) {
+                        note(&mut t, format!("✓ the mouse took {new} s (way {w}); putting {orig} s back"));
+                        let r = ble_send(s, 0x05, 0x04, [0, 0], &orig.to_le_bytes(), combined, 600);
+                        line(&mut t, &r, "set sleep timer back");
+                        let back = ble_ask(s, 0x05, 0x84, [0, 0], 600);
+                        line(&mut t, &back, "read back");
+                        let now = (back.raw.len() >= 2).then(|| u16::from_le_bytes([back.raw[0], back.raw[1]]));
+                        t.ok = now == Some(orig);
+                        t.way = Some(w as u8);
+                        let ok = t.ok;
+                        note(&mut t, if ok { format!("✓ {orig} s again") } else { format!("✗ the timer is now {now:?} s, not {orig} s — set it by cable") });
+                        return (t, true);
+                    }
+                }
+                note(&mut t, "✗ no way of writing changed the sleep timer".into());
+            }
+            "button_same" => {
+                let Some(rec) = read_button(s, &mut t, TEST_BUTTON) else {
+                    note(&mut t, "cannot read the test button — stopped".into());
+                    return (t, true);
+                };
+                note(&mut t, format!("test button {TEST_BUTTON:02x}: {}", crate::ble::describe(0x08, 0x84, [0, TEST_BUTTON], &crate::ble::Reply { tid: 0, status: 2, len: 16, data: rec.clone() })));
+                for w in 0..WRITE_WAYS.len() as u8 {
+                    if write_button(s, &mut t, &rec, w) {
+                        let back = read_button(s, &mut t, TEST_BUTTON);
+                        t.ok = back.as_deref() == Some(&rec[..]);
+                        t.way = Some(w);
+                        let ok = t.ok;
+                        note(&mut t, if ok { format!("✓ the mouse takes button records (way {w}); the binding is unchanged") } else { format!("✗ OK, but the binding reads back differently: {}", hex(&back.unwrap_or_default(), 16)) });
+                        if !t.ok {
+                            write_button(s, &mut t, &rec, w);
+                        }
+                        return (t, true);
+                    }
+                }
+                note(&mut t, "✗ the mouse refused every way of writing a button".into());
+            }
+            "button_change" => {
+                // the change may go to the live (unsaved) layer while reading shows the stored
+                // profile: the user presses the button whatever reads back
+                let w = way.unwrap_or(0);
+                let Some(rec) = read_button(s, &mut t, TEST_BUTTON) else {
+                    note(&mut t, "cannot read the test button — stopped".into());
+                    return (t, true);
+                };
+                let mut orig = ORIGINAL.lock().unwrap_or_else(|e| e.into_inner());
+                if orig.is_none() {
+                    *orig = Some(rec.clone());
+                }
+                drop(orig);
+                let f = with_key_f(&rec);
+                note(&mut t, format!("setting the normal action of button {TEST_BUTTON:02x} to the key F (way {w}): {}", hex(&f, 16)));
+                t.way = Some(w);
+                if write_button(s, &mut t, &f, w) {
+                    t.ok = true;
+                    let back = read_button(s, &mut t, TEST_BUTTON);
+                    let same = back.as_deref() == Some(&f[..]);
+                    t.same = Some(same);
+                    note(&mut t, if same { "reads back as written".into() } else { "reads back unchanged (the change may be live only)".into() });
+                }
+            }
+            "button_restore" => {
+                // put the original back with every way of writing that was used
+                let Some(orig) = ORIGINAL.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+                    note(&mut t, "nothing to restore".into());
+                    t.ok = true;
+                    return (t, true);
+                };
+                for w in [0u8, 1] {
+                    write_button(s, &mut t, &orig, w);
+                }
+                let back = read_button(s, &mut t, TEST_BUTTON);
+                t.ok = back.as_deref() == Some(&orig[..]);
+                let ok = t.ok;
+                note(&mut t, if ok { "✓ the stored binding is as before — press the button to check that it types = again".into() } else { format!("✗ not restored — set side button 12 by cable (was {})", hex(&orig, 16)) });
+                if ok {
+                    *ORIGINAL.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                }
+            }
+            "button_layout" => {
+                // stage 3: layout `way` — set the normal action to F ("f") or back ("orig")
+                let l = way.unwrap_or(0) as usize;
+                let Some(rec) = read_button(s, &mut t, TEST_BUTTON) else {
+                    note(&mut t, "cannot read the test button — stopped".into());
+                    return (t, true);
+                };
+                let mut g = ORIGINAL.lock().unwrap_or_else(|e| e.into_inner());
+                let orig = g.get_or_insert_with(|| rec.clone()).clone();
+                drop(g);
+                let Some((_, [n0, h0])) = crate::ble::binding(&orig) else {
+                    note(&mut t, "cannot decode the test button".into());
+                    return (t, true);
+                };
+                let n = if value == "orig" { n0.clone() } else { vec![0x02, 0x02, 0x00, 0x09] };
+                let (sub, payload) = button_layout(l, TEST_BUTTON, &n, &h0);
+                let r = ble_send(s, 0x08, 0x04, sub, &payload, false, 600);
+                line(&mut t, &r, &format!("layout {l} ({}) {} [{}]", BUTTON_LAYOUTS.get(l).unwrap_or(&"?"), if value == "orig" { "back to the original" } else { "→ F" }, hex(&payload, 16)));
+                t.ok = r.status == crate::protocol::status::OK;
+                t.way = Some(l as u8);
+                let back = read_button(s, &mut t, TEST_BUTTON);
+                t.same = Some(back.as_deref() == Some(&orig[..]));
+            }
+            "targets" => {
+                // stage 2: which profile ("target") the mouse works by, and the test button in
+                // each one. Target 0 mirrors the active profile and cannot be written; 1 is the
+                // live layer; 2..5 are stored (the layout found by OpenSnek on Basilisk mice).
+                let list = ble_ask(s, 0x03, 0x80, [0, 0], 600);
+                line(&mut t, &list, "profile list");
+                let act = ble_ask(s, 0x03, 0x82, [0, 0], 600);
+                line(&mut t, &act, "active profile");
+                let active = (act.status == crate::protocol::status::OK).then(|| act.raw.first().copied()).flatten();
+                let mut g = ORIG_T.lock().unwrap_or_else(|e| e.into_inner());
+                for tg in 0..=5u8 {
+                    let r = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 600);
+                    line(&mut t, &r, &format!("test button in profile {tg}"));
+                    if r.status == crate::protocol::status::OK && r.raw.len() >= 16 {
+                        let rec = r.raw[..16].to_vec();
+                        note(&mut t, format!("  profile {tg}: {}", target_text(&rec)));
+                        // read anew on every run: the binding may have been changed since
+                        g[tg as usize] = Some(rec);
+                    }
+                }
+                drop(g);
+                t.way = active;
+                t.ok = active.is_some();
+                note(&mut t, match active {
+                    Some(a) => format!("the mouse works by profile {a}"),
+                    None => "cannot read the active profile".into(),
+                });
+            }
+            "target_write" => {
+                // stage 3: write the test button into profile `way` the way Synapse does on
+                // Basilisk mice: key 08 04 <profile> <button>, data <profile> <button> <layer>
+                // <7-byte action>; "f" sets the normal action to the key 7 (a digit: the same on every
+                // keyboard layout), "orig" puts it back; "hs_f" / "hs_orig" the same in the
+                // Hypershift layer (layer byte 01, stage 4)
+                let (layer, restore) = match value {
+                    "orig" => (0u8, true),
+                    "hs_f" => (1, false),
+                    "hs_orig" => (1, true),
+                    _ => (0, false),
+                };
+                let lane = if layer == 1 { "Hypershift" } else { "normal" };
+                let tg = way.unwrap_or(1);
+                if tg == 0 || tg > 5 {
+                    note(&mut t, format!("profile {tg} cannot be written"));
+                    return (t, true);
+                }
+                let rec = {
+                    let g = ORIG_T.lock().unwrap_or_else(|e| e.into_inner());
+                    g[tg as usize].clone()
+                };
+                let rec = match rec {
+                    Some(r) => r,
+                    None => {
+                        let r = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 600);
+                        line(&mut t, &r, &format!("read test button in profile {tg}"));
+                        if r.status != crate::protocol::status::OK || r.raw.len() < 16 {
+                            note(&mut t, "cannot read the test button — stopped".into());
+                            return (t, true);
+                        }
+                        let v = r.raw[..16].to_vec();
+                        ORIG_T.lock().unwrap_or_else(|e| e.into_inner())[tg as usize] = Some(v.clone());
+                        v
+                    }
+                };
+                let Some((_, orig)) = crate::ble::binding(&rec) else {
+                    note(&mut t, "cannot decode the test button".into());
+                    return (t, true);
+                };
+                let other = pad7(&orig[1 - layer as usize]);
+                let block = if restore { pad7(&orig[layer as usize]) } else { KEY_7.to_vec() };
+                let payload = target_payload(tg, TEST_BUTTON, layer, &block);
+                let r = ble_send(s, 0x08, 0x04, [tg, TEST_BUTTON], &payload, false, 600);
+                line(&mut t, &r, &format!("write profile {tg} {lane} {} [{}]", if restore { "back to the original" } else { "→ key 7" }, hex(&payload, 16)));
+                t.ok = r.status == crate::protocol::status::OK;
+                t.way = Some(tg);
+                let back = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 600);
+                line(&mut t, &back, &format!("read back profile {tg}"));
+                let lanes = (back.raw.len() >= 16).then(|| crate::ble::binding(&back.raw[..16])).flatten().map(|(_, l)| [pad7(&l[0]), pad7(&l[1])]);
+                // written as asked, and the other layer untouched
+                t.same = Some(lanes.as_ref().is_some_and(|l| l[layer as usize] == block && l[1 - layer as usize] == other));
+                if let Some(rec) = (back.raw.len() >= 16).then(|| back.raw[..16].to_vec()) {
+                    note(&mut t, format!("  profile {tg} now: {}", target_text(&rec)));
+                }
+                let mirror = ble_ask(s, 0x08, 0x84, [0, TEST_BUTTON], 600);
+                line(&mut t, &mirror, "read back profile 0 (active)");
+            }
+            "read_target" => {
+                // stage 5, after the mouse was switched off and on: is the key 7 still there?
+                let tg = way.unwrap_or(1);
+                let r = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 1000);
+                line(&mut t, &r, &format!("read test button in profile {tg}"));
+                if r.status == 0 {
+                    // no reply: the mouse is still reconnecting; the next call opens a new session
+                    return (t, false);
+                }
+                t.ok = r.status == crate::protocol::status::OK;
+                t.way = Some(tg);
+                if let Some(rec) = (r.raw.len() >= 16).then(|| r.raw[..16].to_vec()) {
+                    note(&mut t, format!("  profile {tg}: {}", target_text(&rec)));
+                    t.same = crate::ble::binding(&rec).map(|(_, l)| pad7(&l[0]) == KEY_7);
+                }
+            }
+            _ => note(&mut t, format!("unknown step {step}")),
+        }
+        (t, true)
+    })
+    .map_err(|(e, _)| e)
+}
+
+// ------------------------------------------------------------------ the mouse over Bluetooth
+
+/// Features open-rzr can read over Bluetooth.
+pub const BLE_FEATURES: u32 = {
+    use crate::devices::feat::*;
+    FIRMWARE | SERIAL | DPI | DPI_STAGES | BATTERY | CHARGING | IDLE | LOW_BATTERY | LIGHTING | BUTTONS
+};
+
+/// Of those, the ones that can also be changed over Bluetooth (checked on a Naga Pro: button
+/// bindings in the mouse's slots, the sleep timer).
+pub const BLE_WRITES: u32 = {
+    use crate::devices::feat::*;
+    BUTTONS | IDLE
+};
+
+/// Why a "set" is refused over Bluetooth.
+pub const BLE_READ_ONLY: &str =
+    "over Bluetooth open-rzr can change only button bindings and the sleep timer so far — connect the mouse by cable or through the HyperSpeed receiver to change this";
+
+/// The usual 90-byte requests of `RazerMouse`, answered over the Razer GATT service: each "get"
+/// with a known Bluetooth counterpart is asked there and its reply rewritten into the USB form.
+/// Of the "set" requests, button bindings (`08 04 <profile> <button>`, data `<profile> <button>
+/// <layer> <action, 7 bytes>`) and the sleep timer (`05 04`) are written; the others are refused.
+/// See `crate::ble` for the Bluetooth commands.
+pub struct BleBridge {
+    address: String,
+    reply: Option<[u8; crate::protocol::REPORT_LEN]>,
+    /// all bindings of one profile (`08 83 <profile> 00`): profile, when read, 16-byte records
+    /// (`None`: the bulk read cannot be used for that profile — buttons are read one by one)
+    bulk: Option<(u8, std::time::Instant, Option<Records>)>,
+}
+
+/// 16-byte button records of one profile.
+type Records = Vec<Vec<u8>>;
+
+impl BleBridge {
+    pub fn new(address: &str) -> BleBridge {
+        BleBridge { address: address.to_string(), reply: None, bulk: None }
+    }
+
+    /// One request on the shared session; no reply closes it (the next request opens a new one).
+    fn ask(&self, f: impl FnOnce(&mut imp::Session) -> BleResult) -> crate::protocol::Result<BleResult> {
+        with_session(&self.address, |s| {
+            let r = f(s);
+            let ok = r.status != 0;
+            (r, ok)
+        })
+        .map_err(|(e, _)| crate::protocol::Error::Io(format!("Bluetooth: {e}")))
+    }
+
+    /// The bindings of `profile` read at once, if that works for this profile: the bulk reply is
+    /// checked against its last button read alone, so a bulk read that ignores the profile is
+    /// never taken for another profile's bindings. Kept 3 s (a scan asks every button id).
+    fn bulk_records(&mut self, profile: u8) -> crate::protocol::Result<Option<Records>> {
+        if let Some((p, t, recs)) = &self.bulk {
+            if *p == profile && t.elapsed() < std::time::Duration::from_secs(3) {
+                return Ok(recs.clone());
+            }
+        }
+        let r = self.ask(|s| ble_ask(s, 0x08, 0x83, [profile, 0], 1500))?;
+        let recs: Option<Records> = (r.status == crate::protocol::status::OK && r.raw.len() >= 16)
+            .then(|| r.raw.chunks_exact(16).filter(|c| c[0] != 0).map(<[u8]>::to_vec).collect());
+        let recs = match recs {
+            Some(v) if !v.is_empty() => {
+                let last = v[v.len() - 1].clone();
+                let one = self.ask(|s| ble_ask(s, 0x08, 0x84, [profile, last[0]], 600))?;
+                let same = one.status == crate::protocol::status::OK && one.raw.get(..16) == Some(&last[..]);
+                log_debug!("usb", "BT bindings of profile {profile} at once: {} records, {}", v.len(), if same { "checked" } else { "do not match one read alone — reading buttons one by one" });
+                same.then_some(v)
+            }
+            _ => None,
+        };
+        self.bulk = Some((profile, std::time::Instant::now(), recs.clone()));
+        Ok(recs)
+    }
+
+    /// A "set" over Bluetooth: (class, cmd, sub, data), or why it is refused.
+    fn ble_set(usb: u16, args: &[u8]) -> Result<(u8, u8, [u8; 2], Vec<u8>), String> {
+        use crate::protocol::cmd;
+        let a = |i: usize| args.get(i).copied().unwrap_or(0);
+        match usb {
+            cmd::SET_BUTTON => {
+                let (profile, button, layer) = (a(0), a(1), a(2));
+                if profile == 0 {
+                    // target 0 mirrors the active profile and cannot be written
+                    return Err("over Bluetooth only the profiles in the mouse's slots can be written, not the temporary layer — put the profile into a slot (“In slot…”) or connect the mouse by cable".into());
+                }
+                Ok((0x08, 0x04, [profile, button], target_payload(profile, button, layer, &args[3.min(args.len())..args.len().min(10)])))
+            }
+            cmd::SET_IDLE_TIME => Ok((0x05, 0x04, [0, 0], u16::from_be_bytes([a(0), a(1)]).to_le_bytes().to_vec())),
+            _ => Err(BLE_READ_ONLY.into()),
+        }
+    }
+}
+
+/// The Bluetooth command for a USB "get": (class, cmd, sub).
+fn ble_for(usb: u16, args: &[u8]) -> Option<(u8, u8, [u8; 2])> {
+    use crate::protocol::cmd;
+    let a = |i: usize| args.get(i).copied().unwrap_or(0);
+    Some(match usb {
+        cmd::GET_FIRMWARE => (0x00, 0x81, [0, 0]),
+        cmd::GET_SERIAL => (0x01, 0x83, [0, 0]),
+        cmd::GET_DPI => (0x0b, 0x81, [0, 0]),
+        cmd::GET_DPI_STAGES => (0x0b, 0x84, [a(0).max(1), 0]),
+        cmd::GET_BATTERY => (0x05, 0x81, [0, 1]),
+        cmd::GET_CHARGING => (0x05, 0x85, [0, 0]),
+        cmd::GET_IDLE_TIME => (0x05, 0x84, [0, 0]),
+        cmd::GET_LOW_BATTERY => (0x05, 0x82, [0, 0]),
+        cmd::GET_BRIGHTNESS => (0x10, 0x85, [0, a(1)]),
+        // profile 0 = the active one (read only)
+        cmd::GET_BUTTON => (0x08, 0x84, [a(0), a(1)]),
+        // over Bluetooth profiles are class 03: 03 82 the active one, 03 80 the list (01 02 on a
+        // Naga Pro with two slots, numbered as over USB)
+        cmd::GET_ACTIVE_PROFILE => (0x03, 0x82, [0, 0]),
+        cmd::GET_PROFILE_COUNT | cmd::GET_PROFILE_LIST => (0x03, 0x80, [0, 0]),
+        _ => return None,
+    })
+}
+
+/// The USB reply arguments made from the Bluetooth data.
+pub fn usb_args(usb: u16, args: &[u8], d: &[u8]) -> Option<Vec<u8>> {
+    use crate::protocol::cmd;
+    let a = |i: usize| args.get(i).copied().unwrap_or(0);
+    let b = |i: usize| d.get(i).copied();
+    let le = |i: usize| Some(u16::from_le_bytes([b(i)?, b(i + 1)?]));
+    Some(match usb {
+        cmd::GET_FIRMWARE => vec![b(0)?, b(1)?],
+        cmd::GET_SERIAL => {
+            let mut v = d.iter().copied().take(22).collect::<Vec<_>>();
+            v.resize(22, 0);
+            v
+        }
+        cmd::GET_DPI => {
+            let mut v = vec![a(0)];
+            v.extend(le(0)?.to_be_bytes());
+            v.extend(le(2)?.to_be_bytes());
+            v.extend([0, 0]);
+            v
+        }
+        cmd::GET_DPI_STAGES => {
+            let (active, n) = (b(0)?, b(1)?);
+            let mut v = vec![a(0), active, n];
+            for i in 0..n as usize {
+                let o = 2 + i * 7;
+                v.push(b(o)?);
+                v.extend(le(o + 1)?.to_be_bytes());
+                v.extend(le(o + 3)?.to_be_bytes());
+                v.extend([0, 0]);
+            }
+            v
+        }
+        cmd::GET_BATTERY | cmd::GET_CHARGING => vec![0, b(0)?],
+        cmd::GET_IDLE_TIME => le(0)?.to_be_bytes().to_vec(),
+        cmd::GET_LOW_BATTERY | cmd::GET_ACTIVE_PROFILE => vec![b(0)?],
+        cmd::GET_PROFILE_COUNT => vec![d.iter().filter(|p| **p != 0).count() as u8],
+        cmd::GET_PROFILE_LIST => {
+            let ids: Vec<u8> = d.iter().copied().filter(|p| *p != 0).collect();
+            [&[ids.len() as u8][..], &ids].concat()
+        }
+        cmd::GET_BRIGHTNESS => vec![a(0), a(1), b(0)?],
+        cmd::GET_BUTTON => {
+            let (_, layers) = crate::ble::binding(d)?;
+            let rec = &layers[(a(2) != 0) as usize];
+            let mut v = vec![a(0), a(1), a(2)];
+            v.extend(rec.iter().take(7));
+            v.resize(10, 0);
+            v
+        }
+        _ => return None,
+    })
+}
+
+impl crate::transport::Transport for BleBridge {
+    fn send_feature(&mut self, data: &[u8; crate::protocol::REPORT_LEN]) -> crate::protocol::Result<()> {
+        use crate::protocol::{status, Error, Report};
+        let req = Report::from_bytes(data);
+        let usb = req.cmd();
+        let args = req.arguments;
+        let mut rep = Report::new(usb, &[], Some(req.data_size), req.transaction_id).map_err(|e| Error::Io(e.to_string()))?;
+        rep.status = status::NOT_SUPPORTED;
+        if !crate::ble::is_get(req.command_id) {
+            let (class, cmd, sub, payload) = Self::ble_set(usb, &args).map_err(Error::Unsupported)?;
+            let r = self.ask(|s| ble_send(s, class, cmd, sub, &payload, false, 800))?;
+            log_debug!("usb", "BT set {class:02x} {cmd:02x} {} [{}] -> {}{}", r.sub, hex(&payload, 16), r.status_name, if r.error.is_empty() { String::new() } else { format!(" ({})", r.error) });
+            // the cached bindings are stale now
+            self.bulk = None;
+            rep.status = if r.status == 0 { status::TIMEOUT } else { r.status };
+            rep.arguments = args;
+            self.reply = Some(rep.to_bytes());
+            return Ok(());
+        }
+        if usb == crate::protocol::cmd::GET_BUTTON {
+            // from the bulk read when it can be used: one request for a whole scan
+            if let Some(recs) = self.bulk_records(args[0])? {
+                rep.status = match recs.iter().find(|r| r[0] == args[1]).and_then(|r| usb_args(usb, &args, r)) {
+                    Some(v) => {
+                        rep.arguments[..v.len()].copy_from_slice(&v);
+                        rep.data_size = rep.data_size.max(v.len() as u8);
+                        status::OK
+                    }
+                    // the mouse has no such button
+                    None => status::FAIL,
+                };
+                self.reply = Some(rep.to_bytes());
+                return Ok(());
+            }
+        }
+        if let Some((class, cmd, sub)) = ble_for(usb, &args) {
+            let r = with_session(&self.address, |s| {
+                let r = ble_ask(s, class, cmd, sub, 400);
+                let ok = r.status != 0;
+                (r, ok)
+            })
+            .map_err(|(e, _)| Error::Io(format!("Bluetooth: {e}")))?;
+            log_debug!("usb", "BT {class:02x} {cmd:02x} {} -> {} [{}]{}", r.sub, r.status_name, r.data, if r.error.is_empty() { String::new() } else { format!(" ({})", r.error) });
+            rep.status = match r.status {
+                // no reply: asleep or out of range (the channel then pauses its requests)
+                0 => status::TIMEOUT,
+                status::OK => match usb_args(usb, &args, &r.raw) {
+                    Some(v) => {
+                        rep.arguments[..v.len()].copy_from_slice(&v);
+                        rep.data_size = rep.data_size.max(v.len() as u8);
+                        status::OK
+                    }
+                    None => status::FAIL,
+                },
+                s => s,
+            };
+        }
+        self.reply = Some(rep.to_bytes());
+        Ok(())
+    }
+
+    fn get_feature(&mut self) -> crate::protocol::Result<[u8; crate::protocol::REPORT_LEN]> {
+        self.reply.ok_or_else(|| crate::protocol::Error::Io("no request".into()))
+    }
+}
+
+/// A button over Bluetooth: id, normal record, Hypershift record (`[type, len, data…]`).
+pub type BleBinding = (u8, Vec<u8>, Vec<u8>);
+
+/// Every binding of the active profile over Bluetooth.
+pub fn ble_bindings(address: &str) -> Result<Vec<BleBinding>, String> {
+    let r = with_session(address, |s| {
+        let r = ble_ask(s, 0x08, 0x83, [1, 0], 400);
+        let ok = r.status != 0;
+        (r, ok)
+    })
+    .map_err(|(e, _)| e)?;
+    if r.status != crate::protocol::status::OK {
+        return Err(if r.error.is_empty() { format!("status {}", r.status_name) } else { r.error });
+    }
+    Ok(r.raw.chunks(16).filter_map(crate::ble::binding).map(|(b, [n, h])| (b, n, h)).collect())
 }
 
 /// Name of a standard 16-bit GATT UUID.
@@ -843,131 +1712,159 @@ mod imp {
         Ok(services)
     }
 
-    pub fn exchange(address: &str, request: &[u8], listen_ms: u32, x: &mut Exchange) {
-        let Some(path) = service_path(address, RAZER_SERVICE) else {
-            x.error = format!("the Razer GATT service {RAZER_SERVICE} of {address} was not found");
-            return;
-        };
-        x.steps.push(format!("service interface {}", path.split('#').take(2).collect::<Vec<_>>().join("#")));
-        let Some(h) = open(&path, GENERIC_READ | GENERIC_WRITE).or_else(|| open(&path, GENERIC_READ)) else {
-            x.error = format!("cannot open the service: {}", last_error());
-            return;
-        };
-        unsafe {
-            // the service as this handle sees it
-            let mut n = 0u16;
-            BluetoothGATTGetServices(h, 0, std::ptr::null_mut(), &mut n, 0);
-            let mut svcs = vec![GattServiceRaw { uuid: BthLeUuid { is_short: 0, value: BTLE_DEVICE }, handle: 0 }; n.max(1) as usize];
-            let hr = BluetoothGATTGetServices(h, n.max(1), svcs.as_mut_ptr(), &mut n, 0);
-            let Some(svc) = svcs.iter_mut().take(n as usize).find(|s| uuid_text(&s.uuid) == RAZER_SERVICE) else {
-                x.error = format!("BluetoothGATTGetServices on the service handle: {} ({n} services)", hr_text(hr));
-                CloseHandle(h);
-                return;
+    /// An open, subscribed connection to the Razer GATT service. Dropping it unsubscribes.
+    pub struct Session {
+        h: Handle,
+        chars: Vec<GattCharRaw>,
+        names: std::collections::HashMap<u16, String>,
+        event: isize,
+        pub start: std::time::Instant,
+        pub steps: Vec<String>,
+    }
+
+    // the handle is only used under GATT_LOCK
+    unsafe impl Send for Session {}
+
+    impl Session {
+        pub fn open(address: &str) -> Result<Session, (String, Vec<String>)> {
+            let mut steps = Vec::new();
+            let Some(path) = service_path(address, RAZER_SERVICE) else {
+                return Err((format!("the Razer GATT service {RAZER_SERVICE} of {address} was not found"), steps));
             };
-            let mut m = 0u16;
-            BluetoothGATTGetCharacteristics(h, svc, 0, std::ptr::null_mut(), &mut m, 0);
-            let mut chars = vec![empty_char(); m.max(1) as usize];
-            let hr = BluetoothGATTGetCharacteristics(h, svc, m.max(1), chars.as_mut_ptr(), &mut m, 0);
-            if hr != 0 || m == 0 {
-                x.error = format!("BluetoothGATTGetCharacteristics: {}", hr_text(hr));
-                CloseHandle(h);
-                return;
-            }
-            chars.truncate(m as usize);
-            let names: std::collections::HashMap<u16, String> = chars.iter().map(|c| (c.value_handle, uuid_text(&c.uuid))).collect();
-            for c in &chars {
-                x.steps.push(format!(
-                    "char {} handle {} value handle {} write {} write-no-response {} notify {} indicate {}",
-                    uuid_text(&c.uuid),
-                    c.handle,
-                    c.value_handle,
-                    c.writable,
-                    c.write_no_response,
-                    c.notifiable,
-                    c.indicatable
-                ));
-            }
-            // 1. subscribe: enable notifications in the CCCD of every notifying characteristic
-            let mut reg = EventRegistration { count: 0, chars: [empty_char(); 4] };
-            for c in chars.iter_mut().filter(|c| c.notifiable != 0 || c.indicatable != 0) {
-                let id = uuid_text(&c.uuid);
-                let mut k = 0u16;
-                BluetoothGATTGetDescriptors(h, c, 0, std::ptr::null_mut(), &mut k, 0);
-                let empty = GattDescRaw { service_handle: 0, char_handle: 0, kind: -1, uuid: BthLeUuid { is_short: 0, value: BTLE_DEVICE }, handle: 0 };
-                let mut ds = vec![empty; k.max(1) as usize];
-                let hr = BluetoothGATTGetDescriptors(h, c, k.max(1), ds.as_mut_ptr(), &mut k, 0);
-                match ds.iter_mut().take(k as usize).find(|d| d.kind == CCCD) {
-                    Some(d) => {
-                        // BTH_LE_GATT_DESCRIPTOR_VALUE: type, uuid (20), then the CCCD flags
-                        let mut v = [0u8; 128];
-                        v[0..4].copy_from_slice(&CCCD.to_ne_bytes());
-                        v[4] = 1;
-                        v[8..10].copy_from_slice(&0x2902u16.to_ne_bytes());
-                        v[24] = (c.notifiable != 0) as u8;
-                        v[25] = (c.notifiable == 0 && c.indicatable != 0) as u8;
-                        let hr = BluetoothGATTSetDescriptorValue(h, d, v.as_mut_ptr(), 0);
-                        x.steps.push(format!("subscribe {id}: {}", if hr == 0 { "OK".into() } else { hr_text(hr) }));
+            steps.push(format!("service interface {}", path.split('#').take(2).collect::<Vec<_>>().join("#")));
+            let Some(h) = open(&path, GENERIC_READ | GENERIC_WRITE).or_else(|| open(&path, GENERIC_READ)) else {
+                return Err((format!("cannot open the service: {}", last_error()), steps));
+            };
+            unsafe {
+                // the service as this handle sees it
+                let mut n = 0u16;
+                BluetoothGATTGetServices(h, 0, std::ptr::null_mut(), &mut n, 0);
+                let mut svcs = vec![GattServiceRaw { uuid: BthLeUuid { is_short: 0, value: BTLE_DEVICE }, handle: 0 }; n.max(1) as usize];
+                let hr = BluetoothGATTGetServices(h, n.max(1), svcs.as_mut_ptr(), &mut n, 0);
+                let Some(svc) = svcs.iter_mut().take(n as usize).find(|s| uuid_text(&s.uuid) == RAZER_SERVICE) else {
+                    CloseHandle(h);
+                    return Err((format!("BluetoothGATTGetServices on the service handle: {} ({n} services)", hr_text(hr)), steps));
+                };
+                let mut m = 0u16;
+                BluetoothGATTGetCharacteristics(h, svc, 0, std::ptr::null_mut(), &mut m, 0);
+                let mut chars = vec![empty_char(); m.max(1) as usize];
+                let hr = BluetoothGATTGetCharacteristics(h, svc, m.max(1), chars.as_mut_ptr(), &mut m, 0);
+                if hr != 0 || m == 0 {
+                    CloseHandle(h);
+                    return Err((format!("BluetoothGATTGetCharacteristics: {}", hr_text(hr)), steps));
+                }
+                chars.truncate(m as usize);
+                // the value-changed event gives the characteristic's own handle (62 for …1525 on the
+                // Naga Pro), not its value handle (63): name both
+                let names: std::collections::HashMap<u16, String> =
+                    chars.iter().flat_map(|c| [(c.handle, uuid_text(&c.uuid)), (c.value_handle, uuid_text(&c.uuid))]).collect();
+                for c in &chars {
+                    steps.push(format!(
+                        "char {} handle {} value handle {} write {} write-no-response {} notify {} indicate {}",
+                        uuid_text(&c.uuid),
+                        c.handle,
+                        c.value_handle,
+                        c.writable,
+                        c.write_no_response,
+                        c.notifiable,
+                        c.indicatable
+                    ));
+                }
+                // subscribe: enable notifications in the CCCD of every notifying characteristic
+                let mut reg = EventRegistration { count: 0, chars: [empty_char(); 4] };
+                for c in chars.iter_mut().filter(|c| c.notifiable != 0 || c.indicatable != 0) {
+                    let id = uuid_text(&c.uuid);
+                    let mut k = 0u16;
+                    BluetoothGATTGetDescriptors(h, c, 0, std::ptr::null_mut(), &mut k, 0);
+                    let empty = GattDescRaw { service_handle: 0, char_handle: 0, kind: -1, uuid: BthLeUuid { is_short: 0, value: BTLE_DEVICE }, handle: 0 };
+                    let mut ds = vec![empty; k.max(1) as usize];
+                    let hr = BluetoothGATTGetDescriptors(h, c, k.max(1), ds.as_mut_ptr(), &mut k, 0);
+                    match ds.iter_mut().take(k as usize).find(|d| d.kind == CCCD) {
+                        Some(d) => {
+                            // BTH_LE_GATT_DESCRIPTOR_VALUE: type, uuid (20), then the CCCD flags
+                            let mut v = [0u8; 128];
+                            v[0..4].copy_from_slice(&CCCD.to_ne_bytes());
+                            v[4] = 1;
+                            v[8..10].copy_from_slice(&0x2902u16.to_ne_bytes());
+                            v[24] = (c.notifiable != 0) as u8;
+                            v[25] = (c.notifiable == 0 && c.indicatable != 0) as u8;
+                            let hr = BluetoothGATTSetDescriptorValue(h, d, v.as_mut_ptr(), 0);
+                            steps.push(format!("subscribe {id}: {}", if hr == 0 { "OK".into() } else { hr_text(hr) }));
+                        }
+                        None => steps.push(format!("subscribe {id}: no CCCD descriptor ({} descriptors, {})", k, hr_text(hr))),
                     }
-                    None => x.steps.push(format!("subscribe {id}: no CCCD descriptor ({} descriptors, {})", k, hr_text(hr))),
+                    if (reg.count as usize) < reg.chars.len() {
+                        reg.chars[reg.count as usize] = *c;
+                        reg.count += 1;
+                    }
                 }
-                if (reg.count as usize) < reg.chars.len() {
-                    reg.chars[reg.count as usize] = *c;
-                    reg.count += 1;
+                if let Ok(mut s) = SINK.lock() {
+                    s.clear();
                 }
+                let mut event: isize = 0;
+                let hr = if reg.count > 0 {
+                    BluetoothGATTRegisterEvent(h, VALUE_CHANGED_EVENT, &mut reg as *mut _ as *mut c_void, on_value, std::ptr::null_mut(), &mut event, 0)
+                } else {
+                    -1
+                };
+                steps.push(format!("listen to {} characteristics: {}", reg.count, if hr == 0 { "OK".into() } else { hr_text(hr) }));
+                Ok(Session { h, chars, names, event, start: std::time::Instant::now(), steps })
             }
-            if let Ok(mut s) = SINK.lock() {
-                s.clear();
-            }
-            let start = std::time::Instant::now();
-            let mut event: isize = 0;
-            let hr = if reg.count > 0 {
-                BluetoothGATTRegisterEvent(h, VALUE_CHANGED_EVENT, &mut reg as *mut _ as *mut c_void, on_value, std::ptr::null_mut(), &mut event, 0)
+        }
+
+        /// Write to the request characteristic (…1524).
+        pub fn write(&mut self, request: &[u8]) -> Result<(), String> {
+            let Some(c) = self.chars.iter_mut().find(|c| c.writable != 0 || c.write_no_response != 0) else {
+                return Err("no writable characteristic".into());
+            };
+            let mut v = vec![0u8; 4 + request.len()];
+            v[0..4].copy_from_slice(&(request.len() as u32).to_ne_bytes());
+            v[4..].copy_from_slice(request);
+            let flags = if c.writable != 0 { 0 } else { FLAG_WRITE_WITHOUT_RESPONSE };
+            let hr = unsafe { BluetoothGATTSetCharacteristicValue(self.h, c, v.as_mut_ptr(), 0, flags) };
+            if hr == 0 {
+                Ok(())
             } else {
-                -1
-            };
-            x.steps.push(format!("listen to {} characteristics: {}", reg.count, if hr == 0 { "OK".into() } else { hr_text(hr) }));
-            // 2. write the request
-            if !request.is_empty() {
-                match chars.iter_mut().find(|c| c.writable != 0 || c.write_no_response != 0) {
-                    Some(c) => {
-                        let mut v = vec![0u8; 4 + request.len()];
-                        v[0..4].copy_from_slice(&(request.len() as u32).to_ne_bytes());
-                        v[4..].copy_from_slice(request);
-                        let flags = if c.writable != 0 { 0 } else { FLAG_WRITE_WITHOUT_RESPONSE };
-                        let hr = BluetoothGATTSetCharacteristicValue(h, c, v.as_mut_ptr(), 0, flags);
-                        x.steps.push(format!("write {} bytes to {}: {}", request.len(), uuid_text(&c.uuid), if hr == 0 { "OK".into() } else { hr_text(hr) }));
-                    }
-                    None => x.steps.push("no writable characteristic".into()),
+                Err(hr_text(hr))
+            }
+        }
+
+        /// Notifications received so far (time, value handle, uuid, bytes), removed from the queue.
+        pub fn take(&self) -> Vec<(std::time::Instant, u16, String, Vec<u8>)> {
+            SINK.lock()
+                .map(|mut s| s.drain(..).map(|(t, h, b)| (t, h, self.names.get(&h).cloned().unwrap_or_default(), b)).collect())
+                .unwrap_or_default()
+        }
+
+        /// Current values of the readable characteristics.
+        pub fn read_all(&mut self) -> Vec<String> {
+            let h = self.h;
+            self.chars
+                .iter_mut()
+                .filter(|c| c.readable != 0)
+                .map(|c| {
+                    let r = read_value(&[(h, "service")], c);
+                    format!(
+                        "read {}: {}",
+                        uuid_text(&c.uuid),
+                        match r {
+                            Ok(v) => hex(&v, 128),
+                            Err(e) => e,
+                        }
+                    )
+                })
+                .collect()
+        }
+    }
+
+    impl Drop for Session {
+        fn drop(&mut self) {
+            unsafe {
+                if self.event != 0 {
+                    BluetoothGATTUnregisterEvent(self.event, 0);
                 }
+                CloseHandle(self.h);
             }
-            std::thread::sleep(std::time::Duration::from_millis(listen_ms as u64));
-            if event != 0 {
-                BluetoothGATTUnregisterEvent(event, 0);
-            }
-            if let Ok(mut s) = SINK.lock() {
-                for (t, handle, bytes) in s.drain(..) {
-                    x.notifications.push(Notification {
-                        t_ms: t.saturating_duration_since(start).as_millis() as u64,
-                        handle,
-                        uuid: names.get(&handle).cloned().unwrap_or_default(),
-                        hex: hex(&bytes, 128),
-                        len: bytes.len(),
-                    });
-                }
-            }
-            // 3. the current values of the readable characteristics
-            for c in chars.iter_mut().filter(|c| c.readable != 0) {
-                let r = read_value(&[(h, "service")], c);
-                x.steps.push(format!(
-                    "read {}: {}",
-                    uuid_text(&c.uuid),
-                    match r {
-                        Ok(v) => hex(&v, 128),
-                        Err(e) => e,
-                    }
-                ));
-            }
-            CloseHandle(h);
         }
     }
 }
@@ -1021,8 +1918,28 @@ mod imp {
         v
     }
 
-    pub fn exchange(_address: &str, _request: &[u8], _listen_ms: u32, x: &mut Exchange) {
-        x.error = "Not available on Linux yet. With bluetoothctl: menu gatt → select-attribute 52401525-f97c-7f90-0e7f-6c6f4e36db1c → notify on; then select-attribute 52401524-… → write \"<bytes>\"".into();
+    /// Not available yet on Linux (BlueZ over D-Bus would be needed).
+    pub struct Session {
+        pub start: std::time::Instant,
+        pub steps: Vec<String>,
+    }
+
+    impl Session {
+        pub fn open(_address: &str) -> Result<Session, (String, Vec<String>)> {
+            Err((
+                "Not available on Linux yet. With bluetoothctl: menu gatt → select-attribute 52401525-f97c-7f90-0e7f-6c6f4e36db1c → notify on; then select-attribute 52401524-… → write \"<bytes>\"".into(),
+                Vec::new(),
+            ))
+        }
+        pub fn write(&mut self, _request: &[u8]) -> Result<(), String> {
+            Err("not available".into())
+        }
+        pub fn take(&self) -> Vec<(std::time::Instant, u16, String, Vec<u8>)> {
+            Vec::new()
+        }
+        pub fn read_all(&mut self) -> Vec<String> {
+            Vec::new()
+        }
     }
 
     pub fn gatt(_address: &str) -> Result<Vec<GattService>, String> {
@@ -1033,6 +1950,34 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_writes() {
+        use crate::protocol::cmd;
+        // USB set_button: profile 1, side button 12 (4b), normal layer, key 7 (24)
+        let (c, k, sub, d) = BleBridge::ble_set(cmd::SET_BUTTON, &[1, 0x4b, 0, 2, 2, 0, 0x24, 0, 0, 0]).unwrap();
+        assert_eq!((c, k, sub), (0x08, 0x04, [1, 0x4b]));
+        assert_eq!(d, vec![1, 0x4b, 0, 2, 2, 0, 0x24, 0, 0, 0]); // as the self-test wrote it
+        // Hypershift layer: layer byte 01
+        assert_eq!(BleBridge::ble_set(cmd::SET_BUTTON, &[2, 0x40, 1, 1, 1, 4, 0, 0, 0, 0]).unwrap().3[..3], [2, 0x40, 1]);
+        // the temporary layer (0) is the read-only mirror over Bluetooth
+        assert!(BleBridge::ble_set(cmd::SET_BUTTON, &[0, 0x4b, 0, 2, 2, 0, 0x24, 0, 0, 0]).is_err());
+        // sleep timer: USB big-endian seconds -> Bluetooth little-endian (360 s = 68 01)
+        assert_eq!(BleBridge::ble_set(cmd::SET_IDLE_TIME, &[0x01, 0x68]).unwrap(), (0x05, 0x04, [0, 0], vec![0x68, 0x01]));
+        assert!(BleBridge::ble_set(cmd::SET_DPI, &[0; 7]).is_err());
+        // profile list 03 80 -> 01 02
+        assert_eq!(usb_args(cmd::GET_PROFILE_COUNT, &[], &[1, 2]), Some(vec![2]));
+        assert_eq!(usb_args(cmd::GET_PROFILE_LIST, &[], &[1, 2]), Some(vec![2, 1, 2]));
+        assert_eq!(ble_for(cmd::GET_BUTTON, &[2, 0x4b, 0]), Some((0x08, 0x84, [2, 0x4b])));
+    }
+
+    #[test]
+    fn target_payload_matches_opensnek() {
+        // OpenSnek, Basilisk V3 X BT: slot 02 → right click: 01 02 00 01 01 02 00 00 00 00
+        assert_eq!(target_payload(1, 0x02, 0, &[0x01, 0x01, 0x02]), vec![1, 2, 0, 1, 1, 2, 0, 0, 0, 0]);
+        // slot 02 → Command+[ : 01 02 00 02 02 08 2f 00 00 00
+        assert_eq!(target_payload(1, 0x02, 0, &[0x02, 0x02, 0x08, 0x2f]), vec![1, 2, 0, 2, 2, 8, 0x2f, 0, 0, 0]);
+    }
 
     #[test]
     fn helpers() {
@@ -1054,5 +1999,30 @@ mod tests {
         assert_eq!(parse_hex("0x1f,0x00\n1f0081").unwrap(), vec![0x1f, 0, 0x1f, 0, 0x81]);
         assert!(parse_hex("1f0").is_err());
         assert_eq!(parse_hex("").unwrap(), Vec::<u8>::new());
+        assert_eq!(parse_byte_list("0b").unwrap(), vec![0x0b]);
+        assert_eq!(parse_byte_list("80-83, a0").unwrap(), vec![0x80, 0x81, 0x82, 0x83, 0xa0]);
+        // USB replies made from Bluetooth data (recorded from a Naga Pro)
+        use crate::protocol::cmd;
+        assert_eq!(usb_args(cmd::GET_FIRMWARE, &[], &[2, 1, 0, 0]), Some(vec![2, 1]));
+        assert_eq!(usb_args(cmd::GET_DPI, &[0], &[0x80, 0x0c, 0x80, 0x0c, 0, 0]), Some(vec![0, 0x0c, 0x80, 0x0c, 0x80, 0, 0]));
+        let st = parse_hex("02 03 01 20 03 20 03 00 00 02 80 0c 80 0c 00 00 03 00 19 00 19 00").unwrap();
+        let v = usb_args(cmd::GET_DPI_STAGES, &[1], &st).unwrap();
+        assert_eq!(&v[..10], &[1, 2, 3, 1, 0x03, 0x20, 0x03, 0x20, 0, 0]);
+        assert_eq!(&v[17..22], &[3, 0x19, 0x00, 0x19, 0x00]);
+        assert_eq!(usb_args(cmd::GET_IDLE_TIME, &[], &[0x2c, 0x01]), Some(vec![0x01, 0x2c]));
+        assert_eq!(usb_args(cmd::GET_BATTERY, &[], &[0xf4]), Some(vec![0, 0xf4]));
+        let rec = parse_hex("41 01 01 02 01 02 04 00 00 1f 00 00 00 00 00 00").unwrap();
+        assert_eq!(usb_args(cmd::GET_BUTTON, &[1, 0x41, 0], &rec), Some(vec![1, 0x41, 0, 1, 1, 4, 0, 0, 0, 0]));
+        assert_eq!(usb_args(cmd::GET_BUTTON, &[1, 0x41, 1], &rec), Some(vec![1, 0x41, 1, 2, 2, 0, 0x1f, 0, 0, 0]));
+        assert_eq!(usb_args(cmd::GET_DPI_STAGES, &[1], &[2]), None);
+        let rec = parse_hex("4b 01 02 02 02 02 00 00 2e 2e 00 00 00 00 00 00").unwrap();
+        assert_eq!(with_key_f(&rec), parse_hex("4b 01 02 02 02 02 00 00 09 2e 00 00 00 00 00 00").unwrap());
+        let rec = parse_hex("41 01 01 02 01 02 04 00 00 1f 00 00 00 00 00 00").unwrap();
+        assert_eq!(with_key_f(&rec), parse_hex("41 01 02 02 02 02 00 00 09 1f 00 00 00 00 00 00").unwrap());
+        let (n, h) = (parse_hex("02 02 00 2e").unwrap(), parse_hex("02 02 00 2e").unwrap());
+        assert_eq!(interleave(0x4b, &n, &h), parse_hex("4b 01 02 02 02 02 00 00 2e 2e 00 00 00 00 00 00").unwrap());
+        assert_eq!(button_layout(3, 0x4b, &[2, 2, 0, 9], &h), ([1, 0x4b], parse_hex("01 4b 00 02 02 00 09 00 00 00").unwrap()));
+        assert_eq!(button_layout(6, 0x4b, &n, &h).1.len(), 14);
+        assert!(parse_byte_list("83-80").is_err() && parse_byte_list("").is_err() && parse_byte_list("zz").is_err());
     }
 }

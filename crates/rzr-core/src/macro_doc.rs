@@ -61,7 +61,10 @@ impl Item {
 }
 
 /// Program action. kind: `launch` (text = program, file or web address), `run` (text = command
-/// line), `type` (text = any text), `delay` (value = ms).
+/// line), `type` (text = any text), `delay` (value = ms), `key` (value = modifiers << 8 | HID key),
+/// `mouse` (value = button 1 left, 2 right, 3 middle, 4 back, 5 forward), `media` (value =
+/// consumer usage). A button with a single `key`, `mouse` or `media` action holds it as long as
+/// the button is held; in a longer list they are pressed and released.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "json", serde(default))]
@@ -83,9 +86,18 @@ impl SoftAction {
             "run" => format!("Run: {}", self.text),
             "type" => format!("Type: \"{}\"", self.text),
             "delay" => format!("Delay {} ms", self.value),
+            "key" => format!("Key: {}", crate::hidkeys::combo_name((self.value >> 8) as u8, self.value as u8)),
+            "mouse" => format!("Mouse: {}", crate::hidkeys::mouse_name(self.value as u8)),
+            "media" => format!("Media: {}", crate::hidkeys::consumer_name(self.value as u16)),
             k => format!("{k}: {}", self.text),
         }
     }
+}
+
+/// Is this list one action held while the button is held (a key, a mouse button, a media key)?
+pub fn is_hold(actions: &[SoftAction]) -> bool {
+    let on: Vec<&SoftAction> = actions.iter().filter(|a| a.on).collect();
+    on.len() == 1 && matches!(on[0].kind.as_str(), "key" | "mouse" | "media")
 }
 
 /// Trigger keys for program actions: F13..F24 (HID codes 0x68..0x73).

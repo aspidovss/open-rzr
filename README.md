@@ -23,8 +23,10 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 - **Customize** — every button with a drawing of the mouse, the three Naga Pro side plates (detected automatically), keys and shortcuts, mouse functions, macros, DPI and sniper, profiles, media keys, **turbo** for any button, **Hypershift** (second layer), find a button by pressing it.
 - **Profiles** — a library on this computer, five on-board slots, **Write to mouse** with a clear state (an interrupted write is shown as such), **Undo** after a reset, import/export, backup/restore, profiles linked to programs.
 - **Macros** — an editor like the original: recording, loops, nested macros, typed text, drag and drop, undo/redo; **program actions** (launch a program or website, run a command, type any text) performed by open-rzr through an F13–F24 trigger key.
+- **Software profile in slot 5** — buttons run by open-rzr itself: keys, mouse buttons and media keys held with the button, text, programs, commands; changed without writing to the mouse; they run on cable, receiver and Bluetooth alike (keys and mouse buttons on Linux through `/dev/uinput`).
 - **Performance, lighting, power** — DPI stages, polling rate, lighting zones and effects, sleep, low power mode, battery.
-- **Diagnostics** — live log, report, all HID devices, drivers left by Synapse, raw commands, Bluetooth (HID and GATT) explorer, device description files.
+- **Diagnostics** — live log, report, all HID devices, drivers left by Synapse, raw commands, Bluetooth (HID and GATT) explorer and write self-test, device description files.
+- **Bluetooth (Naga Pro, Windows)** — button bindings (both layers, in the mouse's slots) and the sleep timer are changed over Bluetooth too; the other settings are read.
 - **Help** — the built-in guide, the same as [`ui/docs`](ui/docs/en/getting-started.md).
 - **Command line** — `open-rzr-cli` and `orzr-cli` (razer-cli syntax).
 
@@ -80,6 +82,10 @@ Requirements and details: [Building and contributing](ui/docs/en/building.md).
 - **Portable / AppImage / Linux:** Settings → "Remove from this computer". It turns off autostart, removes the udev rule it installed, can start the Razer services again and delete your data (`%APPDATA%\open-rzr` or `~/.config/open-rzr`), then quits; delete the program files yourself. The .deb package is removed with the package manager, together with its udev rule.
 
 Settings already written to the mouse stay in the mouse. If you kept the Razer services from starting with Windows, start them again (Settings → Razer Synapse) before running the installer's uninstaller — it does not change them.
+
+### Versions
+
+Four numbers, for example **0.8.1.1**: *major* (changes the program as a whole) . *new features* . *fixes* . *optional* (intermediate updates, mostly support of particular devices). The update check tells about optional updates only when this is turned on in Settings (off by default). Cargo keeps the fourth number as build metadata (`0.8.1+1`); the installer and the file names show `0.8.1.1`.
 
 ## Project layout
 

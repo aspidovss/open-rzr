@@ -832,7 +832,7 @@ fn main() -> ExitCode {
         }
     }
     if o.version {
-        println!("orzr-cli (open-rzr) {}", openrzr::VERSION);
+        println!("orzr-cli (open-rzr) {}", openrzr::version());
         println!("Syntax compatible with razer-cli (https://github.com/LoLei/razer-cli)");
     }
     code

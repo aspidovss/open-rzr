@@ -96,3 +96,19 @@ pub(crate) async fn install_udev() -> R<()> {
     log_info!("ui", "install udev rule");
     udev::install(true)
 }
+
+/// Linux: the access rule — present, and the same as this version writes (an older one lacks
+/// newer lines, such as /dev/uinput for program buttons).
+#[derive(Serialize)]
+pub(crate) struct UdevState {
+    linux: bool,
+    present: bool,
+    current: bool,
+    path: &'static str,
+}
+
+#[tauri::command]
+pub(crate) async fn udev_state() -> R<UdevState> {
+    let linux = cfg!(target_os = "linux");
+    Ok(UdevState { linux, present: linux && udev::rule_present(), current: linux && udev::rule_installed(), path: udev::RULE_PATH })
+}

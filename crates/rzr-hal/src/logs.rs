@@ -272,7 +272,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 pub fn startup_banner(kind: &str) {
     crate::log_info!("app", "{}", "=".repeat(60));
-    crate::log_info!("app", "open-rzr {} ({}) started", crate::VERSION, kind);
+    crate::log_info!("app", "open-rzr {} ({}) started", crate::version(), kind);
     crate::log_info!(
         "app",
         "OS: {} {} | log: {}",

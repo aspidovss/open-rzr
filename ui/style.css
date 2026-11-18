@@ -521,3 +521,49 @@ h1 button.help-link { margin-left: 6px; position: relative; top: -2px; }
 pre.eula { white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.45; max-height: 52vh; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
 #update-banner { display: flex; align-items: center; gap: 10px; }
 #update-banner.hidden { display: none; }
+
+/* Diagnostics: log / wireless views */
+.diag-views { align-self: flex-start; }
+#diag-log-view, #diag-wl-view { display: flex; flex-direction: column; gap: 14px; }
+.card.wl { gap: 6px; }
+.card.wl table.list { width: 100%; }
+.wl td.wrap { white-space: normal; word-break: break-all; }
+.wl tr.muted td { color: var(--muted); }
+.wl-x input.short { flex: 0 0 auto; }
+
+/* Bluetooth: settings can be read, not changed */
+.ro-notice { display: none; }
+body.read-only .ro-notice { display: block; }
+body.read-only :is(#page-perf, #page-power, #page-lighting) .needs-mouse:not(.ble-w) :is(input, select, button, textarea, .seg) { pointer-events: none; opacity: .5; }
+#ble-bind td:first-child { white-space: nowrap; font-family: inherit; color: var(--text, inherit); }
+
+/* software buttons: a list of program actions */
+.soft-list { display: flex; flex-direction: column; gap: 6px; }
+.soft-row { display: flex; gap: 6px; align-items: center; }
+.soft-row .capture { flex: 1; min-width: 160px; }
+.soft-row input.grow { flex: 1; }
+
+/* the on-board profile in use */
+#active-chip { display: inline-flex; align-items: center; gap: 6px; }
+#active-chip .sd, .onb .sd { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.onb .slot.active { background: rgba(68, 214, 44, .08); }
+.onb .slot select:disabled { opacity: .45; }
+.chip.small { font-size: 11px; padding: 1px 6px; }
+
+/* Customize: list of all buttons beside the picture (like Synapse) */
+#page-buttons { position: relative; }
+#page-buttons.side-open { padding-left: 262px; }
+#cust-side { position: absolute; left: 0; top: 0; bottom: 0; width: 248px; display: flex; flex-direction: column; background: #161616; border-right: 1px solid #262626; }
+#cust-side .side-hd { display: flex; gap: 6px; padding: 10px; border-bottom: 1px solid #262626; }
+#cust-side .side-hd select { flex: 1; }
+#cust-side .side-list { overflow-y: auto; flex: 1; }
+.side-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid #222; border-radius: 0; padding: 8px 12px; }
+.side-item:hover { background: #1f1f1f; }
+.side-item .n { width: 22px; color: var(--muted); text-align: center; border-right: 1px solid #333; padding-right: 8px; }
+.side-item .t { display: flex; flex-direction: column; min-width: 0; }
+.side-item .t small { font-size: 10px; text-transform: uppercase; color: var(--muted); letter-spacing: .03em; }
+.side-item.mod .t span { color: var(--accent, #44d62c); }
+.side-item.off { opacity: .45; }
+#btn-view.on { border-color: var(--accent, #44d62c); color: var(--accent, #44d62c); }
+.onb .slot.missing { opacity: .8; }
+.onb .slot button.small, .notice button.small { padding: 3px 10px; font-size: 12px; }

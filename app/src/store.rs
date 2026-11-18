@@ -86,6 +86,10 @@ pub struct Store {
     pub update_checked: u64,
     /// a release the user chose not to be told about again ("0.7.0")
     pub update_skip: String,
+    /// also tell about optional updates (only the fourth number of the version changes); off by default
+    pub updates_optional: bool,
+    /// Customize: the list of all buttons opens beside the picture (like Synapse); off by default
+    pub side_list: bool,
 }
 
 impl Store {

@@ -4,7 +4,7 @@ use crate::*;
 
 #[derive(Serialize)]
 pub(crate) struct AppInfo {
-    pub(crate) version: &'static str,
+    pub(crate) version: String,
     pub(crate) os: &'static str,
     pub(crate) log_file: String,
     pub(crate) config_dir: String,
@@ -19,7 +19,7 @@ pub(crate) struct AppInfo {
 #[tauri::command]
 pub(crate) async fn app_info(st: State<'_, AppState>) -> R<AppInfo> {
     Ok(AppInfo {
-        version: openrzr::VERSION,
+        version: openrzr::version(),
         os: std::env::consts::OS,
         log_file: logs::log_file().display().to_string(),
         config_dir: logs::config_dir().display().to_string(),
@@ -76,6 +76,10 @@ pub(crate) struct ConnectInfo {
     pub(crate) zone_effects: HashMap<String, Vec<&'static str>>,
     pub(crate) wireless: bool,
     pub(crate) bluetooth: bool,
+    /// connected over the Razer GATT service of Bluetooth: settings can be read, not changed
+    pub(crate) read_only: bool,
+    /// features that can be changed: all of them, or over Bluetooth only some (button bindings, sleep timer)
+    pub(crate) writable: Vec<&'static str>,
     pub(crate) has_battery: bool,
     pub(crate) max_dpi: u16,
     pub(crate) max_stages: usize,
@@ -123,6 +127,8 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
         zone_effects: m.zones.iter().map(|z| (z.id.to_string(), m.zone_effects(z.id))).collect(),
         wireless: m.spec.wireless,
         bluetooth: m.info.bluetooth || m.spec.bluetooth,
+        read_only: m.ble,
+        writable: feat::names(if m.ble { m.features & openrzr::wireless::BLE_WRITES } else { m.features }),
         has_battery: m.has(feat::BATTERY),
         max_dpi: m.spec.max_dpi,
         max_stages: m.spec.max_dpi_stages,
@@ -156,6 +162,33 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
     *lock(&st.mouse) = Some(m);
     *lock(&st.temp_layer) = None;
     Ok(ci)
+}
+
+#[derive(Serialize)]
+pub(crate) struct BleButton {
+    pub(crate) id: u8,
+    pub(crate) normal: Action,
+    pub(crate) hypershift: Action,
+}
+
+/// Bluetooth (read-only): every binding of the active profile, read from the mouse.
+#[tauri::command]
+pub(crate) async fn ble_bindings(st: State<'_, AppState>) -> R<Vec<BleButton>> {
+    let path = lock(&st.mouse).as_ref().filter(|m| m.ble).map(|m| m.info.path.clone()).ok_or("[not_connected] no mouse over Bluetooth")?;
+    let address = openrzr::wireless::address_from_path(&path).ok_or("[invalid] no Bluetooth address")?;
+    let rec = |v: &[u8]| {
+        let mut r = [0u8; 7];
+        for (d, s) in r.iter_mut().zip(v) {
+            *d = *s;
+        }
+        Action::decode(&r)
+    };
+    let list = tauri::async_runtime::spawn_blocking(move || openrzr::wireless::ble_bindings(&address))
+        .await
+        .map_err(|e| format!("[io] {e}"))?
+        .map_err(|e| format!("[io] {e}"))?;
+    log_info!("ui", "Bluetooth bindings: {} buttons", list.len());
+    Ok(list.into_iter().map(|(id, n, h)| BleButton { id, normal: rec(&n), hypershift: rec(&h) }).collect())
 }
 
 #[tauri::command]

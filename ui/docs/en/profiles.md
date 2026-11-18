@@ -8,6 +8,8 @@ The Naga Pro holds **five profiles** in its own memory. Each slot has an indicat
 
 The **memory** button next to the profile shows the five slots and what each holds, and the free flash memory. Choosing a profile for a slot writes it there.
 
+A mouse may hold fewer than five slots (often only 1 and 2). A missing slot has a **Create** button; a slot other than 1 can be removed with **✕**. After creating, open-rzr reads the mouse's list of profiles to check the slot is there; if the mouse only switched to that slot instead, open-rzr switches it back and says so. The active slot — the one the mouse works by now — is marked *active*.
+
 ## Write to mouse
 
 Changes apply **at once** through the **temporary layer** (the mouse's RAM), so you can try them right away. They stay in the mouse after a restart only when written into a slot. The button next to the profile shows the state:

@@ -129,6 +129,11 @@ function serviceTurbo(id) {
 function describe(a) {
   const mouse = (b) => tl("mouse", b, hex2(b));
   switch (a.kind) {
+    case "software": {
+      const on = a.soft.actions.filter((x) => x.on !== false);
+      const first = on[0] ? t("soft." + on[0].kind) + ": " + softText(on[0]) : "—";
+      return "⚡ " + (on.length > 1 ? t("desc.soft_more", { first, n: on.length - 1 }) : first);
+    }
     case "disabled": return t("desc.disabled");
     case "mouse": return t("desc.mouse", { b: mouse(a.button) });
     case "double_click": return t("desc.double", { b: mouse(a.button) });
@@ -405,6 +410,10 @@ function bindHelp() {
 function setDisconnected() {
   if (!S.conn && S.hotplug) return;
   S.conn = null;
+  S.active = null;
+  drawActive();
+  document.body.classList.remove("read-only");
+  $("#ble-bind-card").classList.add("hidden");
   document.body.classList.add("no-mouse");
   $("#batt-chip").textContent = "";
   $("#batt-bar").style.width = "0"; $("#batt-text").textContent = "—"; $("#batt-charge").textContent = "";
@@ -427,11 +436,16 @@ function setDisconnected() {
   S.hotplug = setInterval(async () => {
     if (S.conn || S.busy) return;
     const groups = await quiet(api.call("list_devices"));
-    if (groups && groups.length) { ulog("mouse is back"); await rescan(); }
+    // the same devices that just failed (a mouse on Bluetooth): do not try again every 20 s
+    if (groups && groups.length && devicesKey(groups) !== S.failedKey) { ulog("mouse is back"); await rescan(); }
   }, S.info && S.info.hotplug ? 20000 : 3000);
 }
 
+/** Which endpoints were found (to see that the device list changed). */
+const devicesKey = (groups) => (groups || []).map((g) => (g.candidates || []).map((c) => c.path).join("|")).join("||");
+
 function setConnected() {
+  S.failedKey = null;
   clearInterval(S.hotplug); S.hotplug = null;
   document.body.classList.remove("no-mouse");
   $("#no-mouse").classList.add("hidden");
@@ -491,7 +505,9 @@ async function connect(i) {
     if (c.lighting.length) await quiet(loadLighting());
     await quiet(checkOpenRazer());
     await quiet(checkRazer());
+    await quiet(checkUdev(true));
   } catch (e) {
+    S.failedKey = devicesKey(S.groups);
     setDisconnected();
     if (S.info.os === "linux" && errCode(e) === "no_access") {
       if (await confirmBox(t("udev.title"), t("udev.text"), t("udev.install"))) {
@@ -639,119 +655,367 @@ async function showHidList() {
 /** The vendor GATT service of Razer mice on Bluetooth (write 1524, notify 1525/1526). */
 const RAZER_GATT = "52401523-f97c-7f90-0e7f-6c6f4e36db1c";
 
-/** Diagnostics → Wireless: what a mouse on Bluetooth offers (HID collections, GATT) and probes. */
-async function showWireless() {
-  let r = await run("wireless_debug", { probe: "" });
-  const col = (path) => { const m = /&col(\d+)/i.exec(path || ""); return m ? "Col" + m[1] : (path || "").split(/[\\/#]/).filter(Boolean).pop(); };
-  const ids = (a) => (a && a.length ? a.map((x) => "0x" + x.toString(16).padStart(2, "0")).join(" ") : "—");
-  const asText = () => {
-    const L = [`open-rzr wireless report — address ${r.address || "?"}, battery ${r.battery ?? "?"}`];
-    r.hid.forEach((c) => L.push(`HID ${col(c.path)} page ${hex4(c.usage_page)}/${hex4(c.usage)} in ${c.input_len} out ${c.output_len} feature ${c.feature_len} ids in ${ids(c.input_ids)} out ${ids(c.output_ids)} feature ${ids(c.feature_ids)} ${c.error}${c.descriptor ? "\n  descriptor " + c.descriptor : ""}`));
-    r.probes.forEach((p) => L.push(`probe ${col(p.path)} ${p.method}: ${p.ok ? "RAZER REPLY" : "—"} ${p.detail}`));
-    if (r.gatt_error) L.push("GATT: " + r.gatt_error);
-    r.gatt.forEach((g) => { L.push(`GATT service ${g.uuid} ${g.name} (handle ${g.handle})`); g.chars.forEach((c) => L.push(`  ${c.uuid} ${c.name} [${c.props}] ${c.value}`)); });
-    r.notes.forEach((n) => L.push("note: " + n));
-    xs.forEach((x) => {
-      L.push(`GATT exchange — write [${x.request || "listen only"}]${x.error ? " error: " + x.error : ""}`);
-      x.steps.forEach((s) => L.push("  " + s));
-      x.notifications.forEach((n) => L.push(`  notify +${n.t_ms} ms ${n.uuid} (handle ${n.handle}) ${n.len} bytes: ${n.hex}`));
-      if (!x.notifications.length) L.push("  no notifications");
-    });
-    return L.join("\n");
-  };
-  const xs = []; // GATT exchanges of this dialog
-  await modal((box, close) => {
-    box.classList.add("wide");
-    const body = el("div", { class: "scroll-box wl" });
-    const draw = () => {
-      body.innerHTML = "";
-      body.append(el("div", { class: "wl-head" },
-        el("span", { text: t("wl.address", { a: r.address || "—" }) }),
-        el("span", { text: t("wl.battery", { b: r.battery != null ? r.battery + " %" : "—" }) })));
-      r.notes.forEach((n) => body.append(el("div", { class: "notice", text: n })));
-      // HID collections
-      body.append(el("h3", { text: t("wl.hid") }));
-      const th = el("table", { class: "list small" });
-      th.append(el("tr", {}, ...["", t("diag.hid_page"), t("wl.lens"), t("wl.ids"), ""].map((h) => el("th", { text: h }))));
-      r.hid.forEach((c) => th.append(el("tr", { title: c.path + (c.descriptor ? "\n" + c.descriptor : "") },
-        el("td", { class: "mono", text: col(c.path) }),
-        el("td", { class: "mono", text: `${hex4(c.usage_page)}/${hex4(c.usage)}${c.usage_page >= 0xff00 ? " ★" : ""}` }),
-        el("td", { class: "mono", text: `${c.input_len} / ${c.output_len} / ${c.feature_len}` }),
-        el("td", { class: "mono small", text: `in ${ids(c.input_ids)} · out ${ids(c.output_ids)} · feat ${ids(c.feature_ids)}` }),
-        el("td", { class: "muted small", text: c.error }))));
-      body.append(th);
-      // probes
-      if (r.probes.length) {
-        body.append(el("h3", { text: t("wl.probes") }));
-        const tp = el("table", { class: "list small" });
-        r.probes.forEach((p) => tp.append(el("tr", { class: p.ok ? "ok" : "" }, el("td", { class: "mono", text: col(p.path) }),
-          el("td", { text: p.method }), el("td", { class: "mono small", text: (p.ok ? "✓ " : "") + p.detail }))));
-        body.append(tp);
-      }
-      // GATT
-      body.append(el("h3", { text: t("wl.gatt") }));
-      if (r.gatt_error) body.append(el("div", { class: "muted small", text: r.gatt_error }));
-      r.gatt.forEach((g) => {
-        body.append(el("div", { class: "wl-svc" + (g.name === "vendor-specific" ? " vendor" : "") }, el("b", { text: g.name || "—" }), el("span", { class: "mono small muted", text: " " + g.uuid })));
-        const tg = el("table", { class: "list small" });
-        g.chars.forEach((c) => tg.append(el("tr", {}, el("td", { class: "mono small", text: c.uuid.length > 8 ? c.uuid : "0x" + c.uuid }),
-          el("td", { text: c.name || "—" }), el("td", { class: "small", text: c.props }), el("td", { class: "mono small", text: c.value }))));
-        body.append(tg);
-      });
-      // Razer GATT channel
-      if (r.gatt.some((g) => g.uuid === RAZER_GATT)) {
-        body.append(el("h3", { text: t("wl.x_title") }), el("div", { class: "muted small", text: t("wl.x_note") }));
-        const mode = el("select", {},
-          el("option", { value: "", text: t("wl.x_listen") }),
-          el("option", { value: "fw", text: t("wl.x_fw") }),
-          el("option", { value: "hex", text: t("wl.x_hex") }));
-        const hexIn = el("input", { type: "text", class: "mono", placeholder: "00 1f 00 00 00 02 00 81", spellcheck: "false" });
-        const ms = el("input", { type: "number", min: "100", max: "10000", step: "100", value: "1500", class: "num" });
-        mode.value = xMode; hexIn.value = xHex; ms.value = xMs;
-        const sync = () => { xMode = mode.value; xHex = hexIn.value; xMs = ms.value; hexIn.hidden = mode.value !== "hex"; };
-        mode.addEventListener("change", sync); hexIn.addEventListener("input", sync); ms.addEventListener("input", sync);
-        sync();
-        const send = el("button", { text: t("wl.x_send"), onclick: () => quiet(exchange(mode.value === "hex" ? hexIn.value : mode.value, Number(ms.value) || 1500)) });
-        body.append(el("div", { class: "wl-x" }, mode, hexIn, el("label", { class: "small" }, t("wl.x_ms") + " ", ms), send));
-        xs.slice().reverse().forEach((x) => {
-          const box = el("div", { class: "wl-xres" });
-          box.append(el("div", { class: "small" }, el("b", { text: x.request ? t("wl.x_wrote", { n: x.request.split(" ").length }) : t("wl.x_listened") }),
-            el("span", { class: "mono small muted", text: " " + (x.request || "") })));
-          if (x.error) box.append(el("div", { class: "notice", text: x.error }));
-          x.steps.forEach((st) => box.append(el("div", { class: "mono small muted", text: st })));
-          if (x.notifications.length) {
-            const tn = el("table", { class: "list small" });
-            x.notifications.forEach((n) => tn.append(el("tr", { class: "ok" }, el("td", { class: "mono small", text: "+" + n.t_ms + " ms" }),
-              el("td", { class: "mono small", text: n.uuid.slice(0, 8) }), el("td", { class: "mono small", text: n.len + " B" }), el("td", { class: "mono small", text: n.hex }))));
-            box.append(tn);
-          } else if (!x.error) box.append(el("div", { class: "small", text: t("wl.x_none") }));
-          body.append(box);
-        });
-      }
-    };
-    let xMode = "fw", xHex = "", xMs = "1500";
-    const exchange = async (request, listenMs) => {
-      status(t("wl.x_busy"));
-      const x = await run("wireless_gatt", { request, listenMs }, (y) => y.error || t(y.notifications.length ? "wl.x_got" : "wl.x_none", { n: y.notifications.length }));
-      xs.push(x);
-      const top = body.scrollTop;
-      draw();
-      body.scrollTop = top;
-    };
-    draw();
-    const probe = async (scope) => {
-      if (scope === "all" && !(await confirmBox(t("wl.title"), t("wl.all_warn"), t("wl.probe_all")))) return;
-      status(t("wl.probing"));
-      r = await run("wireless_debug", { probe: scope }, (x) => t(x.probes.some((p) => p.ok) ? "wl.found" : "wl.none"));
-      draw();
-    };
-    box.append(el("h2", { text: t("wl.title") }), el("div", { class: "muted small", text: t("wl.note") }), body,
-      el("div", { class: "buttons" },
-        el("button", { text: t("wl.copy"), onclick: async () => { try { await navigator.clipboard.writeText(asText()); status(t("wl.copied")); } catch (_) { status(t("wl.copy_fail"), true); } } }),
-        el("button", { text: t("wl.probe_all"), onclick: () => quiet(probe("all")) }),
-        el("button", { text: t("wl.probe"), onclick: () => quiet(probe("vendor")) }),
-        el("button", { class: "primary", text: t("common.ok"), onclick: () => close(null) })));
+// ------------------------------------------------------------------ diagnostics → wireless
+/** Diagnostics has two views: the log and "Wireless" (a mouse on Bluetooth). */
+function showDiagView(v) {
+  $$("#diag-views button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  $("#diag-log-view").classList.toggle("hidden", v !== "log");
+  $("#diag-wl-view").classList.toggle("hidden", v !== "wl");
+  if (v === "wl" && !WL.r) quiet(loadWireless());
+}
+
+/** State of the Wireless view: the report, GATT exchanges, Bluetooth command results, the form. */
+const WL = { r: null, xs: [], ble: [], test: null, busy: false, stop: false, onlyAnswers: true,
+  xMode: "fw", xHex: "", xMs: "1500",
+  cls: "0b", cmd: "84", sub: "01 00", scanCls: "00-1f", scanCmd: "80-9f", scanSub: "00 00", progress: "" };
+
+/** Known "get" commands of the Naga Pro over Bluetooth (class, command, sub). */
+const BLE_KNOWN = [["00", "81", "00 00"], ["01", "83", "00 00"], ["05", "81", "00 01"], ["05", "84", "00 00"], ["0b", "81", "00 00"],
+  ["0b", "84", "01 00"], ["10", "83", "00 00"], ["10", "85", "00 01"], ["08", "83", "01 00"]];
+
+const wlCol = (path) => { const m = /&col(\d+)/i.exec(path || ""); return m ? "Col" + m[1] : (path || "").split(/[\\/#]/).filter(Boolean).pop(); };
+const wlIds = (a) => (a && a.length ? a.map((x) => "0x" + x.toString(16).padStart(2, "0")).join(" ") : "—");
+const h2 = (n) => n.toString(16).padStart(2, "0");
+/** the row the backend adds when the mouse stopped answering in the middle of a scan */
+const bleStall = (b) => b.status === 0 && /stopped/.test(b.error || "");
+
+async function loadWireless(probe = "") {
+  if (probe === "all" && !(await confirmBox(t("wl.title"), t("wl.all_warn"), t("wl.probe_all")))) return;
+  if (probe) status(t("wl.probing"));
+  WL.r = await run("wireless_debug", { probe }, probe ? (x) => t(x.probes.some((p) => p.ok) ? "wl.found" : "wl.none") : undefined);
+  drawWireless();
+}
+
+function wirelessText() {
+  const r = WL.r || { hid: [], probes: [], gatt: [], notes: [] };
+  const L = [`open-rzr wireless report — address ${r.address || "?"}, battery ${r.battery ?? "?"}`];
+  WL.ble.forEach((b) => L.push(bleStall(b) ? `BT get: ${b.error}` :
+    `BT get ${h2(b.class)} ${h2(b.cmd)} ${b.sub}: ${b.status ? h2(b.status) + " " + b.status_name : "—"} len ${b.len} [${b.data}] ${b.meaning}${b.error ? " (" + b.error + ")" : ""}`));
+  if (WL.test) { L.push("BT write self-test:"); WL.test.stages.forEach((st) => { L.push(`  stage ${st.n}: ${st.ok == null ? "—" : st.ok ? "OK" : "FAILED"} ${st.note || ""}`); st.lines.forEach((x) => L.push("    " + x)); }); }
+  r.hid.forEach((c) => L.push(`HID ${wlCol(c.path)} page ${hex4(c.usage_page)}/${hex4(c.usage)} in ${c.input_len} out ${c.output_len} feature ${c.feature_len} ids in ${wlIds(c.input_ids)} out ${wlIds(c.output_ids)} feature ${wlIds(c.feature_ids)} ${c.error}${c.descriptor ? "\n  descriptor " + c.descriptor : ""}`));
+  r.probes.forEach((p) => L.push(`probe ${wlCol(p.path)} ${p.method}: ${p.ok ? "RAZER REPLY" : "—"} ${p.detail}`));
+  if (r.gatt_error) L.push("GATT: " + r.gatt_error);
+  r.gatt.forEach((g) => { L.push(`GATT service ${g.uuid} ${g.name} (handle ${g.handle})`); g.chars.forEach((c) => L.push(`  ${c.uuid} ${c.name} [${c.props}] ${c.value}`)); });
+  r.notes.forEach((n) => L.push("note: " + n));
+  WL.xs.forEach((x) => {
+    L.push(`GATT exchange — write [${x.request || "listen only"}]${x.error ? " error: " + x.error : ""}`);
+    x.steps.forEach((s) => L.push("  " + s));
+    x.notifications.forEach((n) => L.push(`  notify +${n.t_ms} ms ${n.uuid} (handle ${n.handle}) ${n.len} bytes: ${n.hex}`));
+    if (!x.notifications.length) L.push("  no notifications");
   });
+  return L.join("\n");
+}
+
+/** Run "get" commands; `classes` one call per class, so the progress shows and "Stop" works. */
+async function bleGet(classes, cmds, subs) {
+  if (WL.busy) return;
+  WL.busy = true; WL.stop = false;
+  try {
+    for (let i = 0; i < classes.length && !WL.stop; i++) {
+      WL.progress = classes.length > 1 ? t("wl.b_progress", { c: classes[i], i: i + 1, n: classes.length }) : t("wl.b_asking");
+      drawWireless();
+      const rows = await api.call("ble_get", { classes: classes[i], cmds, subs });
+      WL.ble.push(...rows);
+      if (rows.some(bleStall)) break;
+    }
+    const ok = WL.ble.filter((b) => b.status === 2).length;
+    status(t("wl.b_done", { n: ok }));
+  } catch (e) {
+    status(errText(e), true);
+  } finally {
+    WL.busy = false; WL.progress = "";
+    drawWireless();
+  }
+}
+
+/** "00-1f" → ["00", "01", …] (the backend checks again). */
+function hexRange(s) {
+  const out = [];
+  for (const part of String(s).split(/[,\s;]+/).filter(Boolean)) {
+    const [a, b] = part.split("-").map((x) => parseInt(x, 16));
+    if (Number.isNaN(a) || (b !== undefined && Number.isNaN(b))) throw new Error(t("wl.b_bad", { v: part }));
+    for (let x = a; x <= (b === undefined ? a : b) && x <= 255; x++) out.push(h2(x));
+  }
+  if (!out.length) throw new Error(t("wl.b_bad", { v: s }));
+  return out;
+}
+
+/** Write self-test over Bluetooth (version 3), five stages: the sleep timer (write, read back,
+ * put back); the active profile and the test button in every profile; the test button set to the
+ * key 7 in the active profile, in profile 1 and in both, each checked by the user pressing it and
+ * put back; the same in the Hypershift layer (read back only); and, if the user agrees, whether a
+ * written binding survives switching the mouse off and on. Every step is logged. */
+async function bleSelfTest() {
+  if (WL.busy) return;
+  if (!(await confirmBox(t("wl.t_title"), t("wl.t_warn"), t("wl.t_start")))) return;
+  WL.busy = true;
+  const stages = [1, 2, 3, 4, 5].map((n) => ({ n, ok: null, note: "", lines: [] }));
+  WL.test = { stages };
+  const step = async (st, name, way, value) => {
+    const r = await api.call("ble_selftest", { step: name, way: way ?? null, value: value ?? null });
+    st.lines.push(...r.lines);
+    drawWireless();
+    return r;
+  };
+  const log = (st, msg) => { st.lines.push("user: " + msg); quiet(api.call("ui_log", { level: "INFO", msg: "BT self-test " + msg })); };
+  // the user presses the button; the window catches the key itself
+  const press = (title) => modal((box, close) => {
+    box.dataset.capture = "1";
+    const got = el("div", { class: "mono", text: "…" });
+    const onKey = (e) => {
+      if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      document.removeEventListener("keydown", onKey, true);
+      got.textContent = e.key;
+      setTimeout(() => close(e.key), 250);
+    };
+    document.addEventListener("keydown", onKey, true);
+    box.append(el("h2", { text: t("wl.t_press_title") }), el("div", { text: title }), got,
+      el("div", { class: "buttons" }, el("button", { text: t("wl.t_skip"), onclick: () => { document.removeEventListener("keydown", onKey, true); close(null); } })));
+  });
+  try {
+    status(t("wl.t_running", { n: 1 })); drawWireless();
+    const a = await step(stages[0], "sleep");
+    stages[0].ok = a.ok;
+    status(t("wl.t_running", { n: 2 })); drawWireless();
+    const b = await step(stages[1], "targets");
+    stages[1].ok = b.ok;
+    const act = b.ok ? b.way : null;
+    stages[1].note = act != null ? "→ " + act : "";
+    // variants: the active stored profile, the live profile 1, both (stored first, as Synapse)
+    const vars = [];
+    if (act >= 2 && act <= 5) vars.push([act], [1], [act, 1]);
+    else if (act === 1) vars.push([1], [2], [2, 1]);
+    else vars.push([1], [2]);
+    const notes = [];
+    let found = null, restored = true;
+    for (let i = 0; i < vars.length && found === null; i++) {
+      const v = vars[i], label = v.join("+");
+      status(t("wl.t_running3", { l: i + 1, n: vars.length })); drawWireless();
+      let ok = false, same = false;
+      for (const tg of v) { const c = await step(stages[2], "target_write", tg, "f"); ok = ok || c.ok; same = same || c.same; }
+      const key = ok ? await press(t("wl.t_press_layout", { l: i + 1, p: label })) : null;
+      const works = key === "7";
+      log(stages[2], `variant ${label}: ${ok ? "OK" : "refused"}, read back ${same ? "as written" : "unchanged"}, key ${JSON.stringify(key)}`);
+      notes.push(`${label}: ${works ? "7 ✓" : key ? JSON.stringify(key) : ok ? "—" : t("wl.t_refused")}${same ? " (" + t("wl.t_read_changed") + ")" : ""}`);
+      for (const tg of [...v].reverse()) { const c = await step(stages[2], "target_write", tg, "orig"); if (c.ok && !c.same) restored = false; }
+      if (works) found = label;
+      drawWireless();
+    }
+    stages[2].ok = found !== null;
+    stages[2].note = (found !== null ? t("wl.t_found", { p: found }) + " · " : "") + notes.join(" · ") + (restored ? "" : " · " + t("wl.t_not_restored"));
+    const k = await press(t("wl.t_back_text"));
+    log(stages[2], "after restore pressed " + JSON.stringify(k));
+    if (k && k !== "=") stages[2].note += " · " + t("wl.t_not_restored");
+    // the profiles to write: those of the variant that worked, else the active one
+    const tgs = found !== null ? found.split("+").map(Number) : [act >= 1 && act <= 5 ? act : 1];
+    // stage 4: the Hypershift layer (byte 01) of the first of them; checked by reading back
+    status(t("wl.t_running", { n: 4 })); drawWireless();
+    const h = await step(stages[3], "target_write", tgs[0], "hs_f");
+    const hb = await step(stages[3], "target_write", tgs[0], "hs_orig");
+    stages[3].ok = h.ok && !!h.same;
+    stages[3].note = (h.ok ? (h.same ? t("wl.t_hs_ok") : t("wl.t_hs_no")) : t("wl.t_refused")) + (hb.ok && hb.same ? "" : " · " + t("wl.t_not_restored"));
+    // stage 5 (if the user agrees): does a binding stay after the mouse is switched off and on?
+    if (found !== null && await confirmBox(t("wl.t_persist_title"), t("wl.t_persist_ask"), t("wl.t_persist_start"))) {
+      status(t("wl.t_running", { n: 5 })); drawWireless();
+      for (const tg of tgs) await step(stages[4], "target_write", tg, "f");
+      const go = await modal((box, close) => box.append(el("h2", { text: t("wl.t_persist_title") }), el("div", { text: t("wl.t_persist_off") }),
+        el("div", { class: "buttons" }, el("button", { text: t("wl.t_skip"), onclick: () => close(false) }), el("button", { class: "primary", text: t("wl.t_persist_go"), onclick: () => close(true) }))));
+      let back = null;
+      if (go) {
+        // the mouse reconnects by itself; ask until it answers (about 40 s at most)
+        for (let i = 0; i < 20 && !back; i++) {
+          status(t("wl.t_persist_wait", { n: i + 1 }));
+          try { const r = await step(stages[4], "read_target", tgs[0]); if (r.ok) back = r; } catch (e) { stages[4].lines.push("…" + errText(e)); }
+          if (!back) await new Promise((res) => setTimeout(res, 2000));
+        }
+      }
+      const kept = back ? !!back.same : null;
+      const key = back ? await press(t("wl.t_persist_press")) : null;
+      log(stages[4], `after off/on: ${back ? (kept ? "reads key 7" : "reads the original") : "no answer"}, key ${JSON.stringify(key)}`);
+      let restored = true;
+      for (const tg of [...tgs].reverse()) {
+        for (let i = 0; i < 5; i++) {
+          try { const c = await step(stages[4], "target_write", tg, "orig"); restored = restored && c.ok && !!c.same; break; } catch (e) { await new Promise((res) => setTimeout(res, 2000)); restored = false; }
+        }
+      }
+      stages[4].ok = back ? true : false;
+      stages[4].note = (!go ? t("wl.t_persist_skipped") : !back ? t("wl.t_persist_noanswer") : kept && key === "7" ? t("wl.t_persist_yes") : kept ? t("wl.t_persist_read") : t("wl.t_persist_no")) + (restored ? "" : " · " + t("wl.t_not_restored"));
+      if (!go) stages[4].ok = null;
+    } else stages[4].note = t("wl.t_persist_skipped");
+    const ok = stages.filter((x) => x.ok !== null).every((x) => x.ok);
+    status(ok ? t("wl.t_all_ok") : t("wl.t_some_failed"), !ok);
+  } catch (e) {
+    status(errText(e), true);
+  } finally {
+    WL.busy = false;
+    drawWireless();
+  }
+}
+
+function drawWireless() {
+  const root = $("#diag-wl-view");
+  const keep = $("#pages").scrollTop;
+  root.innerHTML = "";
+  const r = WL.r;
+  // toolbar
+  root.append(el("div", { class: "row wrap toolbar" },
+    el("span", { class: "chip", text: t("wl.address", { a: (r && r.address) || "—" }) }),
+    el("span", { class: "chip", text: t("wl.battery", { b: r && r.battery != null ? r.battery + " %" : "—" }) }),
+    el("span", { class: "grow" }),
+    el("button", { text: t("wl.refresh"), disabled: WL.busy, onclick: () => quiet(loadWireless()) }),
+    el("button", { text: t("wl.probe"), disabled: WL.busy, onclick: () => quiet(loadWireless("vendor")) }),
+    el("button", { text: t("wl.probe_all"), disabled: WL.busy, onclick: () => quiet(loadWireless("all")) }),
+    el("button", { class: "primary", text: t("wl.copy"), onclick: async () => { try { await navigator.clipboard.writeText(wirelessText()); status(t("wl.copied")); } catch (_) { status(t("wl.copy_fail"), true); } } })));
+  root.append(el("div", { class: "muted small", text: t("wl.note") }));
+  if (!r) { root.append(el("div", { class: "muted", text: t("wl.loading") })); return; }
+  r.notes.forEach((n) => root.append(el("div", { class: "notice", text: n })));
+  const hasRazer = r.gatt.some((g) => g.uuid === RAZER_GATT);
+
+  // ---- Razer commands over Bluetooth
+  if (hasRazer) {
+    const card = el("div", { class: "card wl" });
+    card.append(el("div", { class: "card-title", text: t("wl.b_title") }), el("div", { class: "muted small", text: t("wl.b_note") }));
+    const inp = (key, w, ph) => { const i = el("input", { type: "text", class: "mono short", value: WL[key], placeholder: ph || "", spellcheck: "false", style: `width:${w}px` }); i.addEventListener("input", () => { WL[key] = i.value; }); return i; };
+    card.append(el("div", { class: "wl-x" },
+      el("button", { class: "primary", text: t("wl.b_known"), disabled: WL.busy, onclick: async () => {
+        if (WL.busy) return;
+        for (const [c, m, sb] of BLE_KNOWN) { if (WL.stop) break; await bleGet([c], m, sb); }
+      } }),
+      el("span", { class: "grow" }),
+      el("label", { class: "small", text: t("wl.b_class") }), inp("cls", 60),
+      el("label", { class: "small", text: t("wl.b_cmd") }), inp("cmd", 60),
+      el("label", { class: "small", text: t("wl.b_sub") }), inp("sub", 70),
+      el("button", { text: t("wl.b_read"), disabled: WL.busy, onclick: () => {
+        try { quiet(bleGet(hexRange(WL.cls), WL.cmd, WL.sub)); } catch (e) { status(e.message, true); }
+      } })));
+    card.append(el("div", { class: "wl-x" },
+      el("b", { class: "small", text: t("wl.b_scan_title") }),
+      el("label", { class: "small", text: t("wl.b_classes") }), inp("scanCls", 90),
+      el("label", { class: "small", text: t("wl.b_cmds") }), inp("scanCmd", 90),
+      el("label", { class: "small", text: t("wl.b_subs") }), inp("scanSub", 150, "00 00, 01 00, 00 01"),
+      WL.busy ? el("button", { class: "danger", text: t("wl.b_stop"), onclick: () => { WL.stop = true; } })
+        : el("button", { text: t("wl.b_scan"), onclick: async () => {
+          let cls;
+          try { cls = hexRange(WL.scanCls); hexRange(WL.scanCmd); } catch (e) { status(e.message, true); return; }
+          const n = cls.length * hexRange(WL.scanCmd).length * Math.max(1, WL.scanSub.split(",").filter((x) => x.trim()).length);
+          if (!(await confirmBox(t("wl.b_scan_title"), t("wl.b_scan_warn", { n }), t("wl.b_scan")))) return;
+          quiet(bleGet(cls, WL.scanCmd, WL.scanSub));
+        } }),
+      el("span", { class: "muted small", text: WL.progress })));
+    // results
+    const only = el("input", { type: "checkbox", checked: WL.onlyAnswers });
+    only.addEventListener("change", () => { WL.onlyAnswers = only.checked; drawWireless(); });
+    const shown = WL.ble.filter((b) => !WL.onlyAnswers || (b.status !== 5 && b.status !== 0) || bleStall(b));
+    card.append(el("div", { class: "row" },
+      el("label", { class: "check small" }, only, el("span", { text: " " + t("wl.b_only", { n: WL.ble.length - shown.length }) })),
+      el("span", { class: "grow" }),
+      WL.ble.length ? el("button", { class: "link", text: t("wl.b_clear"), disabled: WL.busy, onclick: () => { WL.ble = []; drawWireless(); } }) : ""));
+    if (shown.length) {
+      const tb = el("table", { class: "list small" });
+      tb.append(el("tr", {}, ...[t("wl.b_class"), t("wl.b_cmd"), t("wl.b_sub"), t("wl.b_status"), t("wl.b_len"), t("wl.b_data"), t("wl.b_meaning")].map((h) => el("th", { text: h }))));
+      shown.forEach((b) => tb.append(bleStall(b) ? el("tr", {}, el("td", { colspan: 7, class: "muted", text: b.error })) :
+        el("tr", { class: b.status === 2 ? "ok" : b.status === 5 || b.status === 0 ? "muted" : "" },
+          el("td", { class: "mono", text: h2(b.class) }), el("td", { class: "mono", text: h2(b.cmd) }), el("td", { class: "mono", text: b.sub }),
+          el("td", { class: "mono", text: b.status ? h2(b.status) + " " + b.status_name : "—" }),
+          el("td", { class: "mono", text: b.len }),
+          el("td", { class: "mono wrap", text: b.data + (b.error ? " (" + b.error + ")" : "") }),
+          el("td", { text: b.meaning }))));
+      card.append(tb);
+    } else card.append(el("div", { class: "muted small", text: t("wl.b_none") }));
+    root.append(card);
+
+    // ---- write self-test
+    const test = el("div", { class: "card wl" });
+    test.append(el("div", { class: "card-title", text: t("wl.t_title") }), el("div", { class: "muted small", text: t("wl.t_note") }),
+      el("div", { class: "wl-x" }, el("button", { class: "primary", text: t("wl.t_start"), disabled: WL.busy, onclick: () => quiet(bleSelfTest()) })));
+    if (WL.test) {
+      const tt = el("table", { class: "list small" });
+      WL.test.stages.forEach((st) => {
+        tt.append(el("tr", { class: st.ok ? "ok" : "" },
+          el("td", { style: "white-space:nowrap;font-family:inherit", text: t(["wl.t_stage1", "wl.t_stage2", "wl.t_stage3", "wl.t_stage4", "wl.t_stage5"][st.n - 1]) }),
+          el("td", { text: st.ok == null ? "…" : st.ok ? "✓" : "✗" }),
+          el("td", { class: "small", text: st.note })));
+        if (st.lines.length) tt.append(el("tr", {}, el("td", { colspan: 3, class: "mono wrap muted", text: st.lines.join("\n"), style: "white-space:pre-wrap" })));
+      });
+      test.append(tt);
+    }
+    root.append(test);
+
+    // ---- raw GATT channel
+    const raw = el("div", { class: "card wl" });
+    raw.append(el("div", { class: "card-title", text: t("wl.x_title") }), el("div", { class: "muted small", text: t("wl.x_note") }));
+    const mode = el("select", {},
+      el("option", { value: "", text: t("wl.x_listen") }),
+      el("option", { value: "fw", text: t("wl.x_fw") }),
+      el("option", { value: "hex", text: t("wl.x_hex") }));
+    const hexIn = el("input", { type: "text", class: "mono", placeholder: "01 00 00 00 00 81 00 00", spellcheck: "false" });
+    const ms = el("input", { type: "number", min: "100", max: "10000", step: "100", class: "num" });
+    mode.value = WL.xMode; hexIn.value = WL.xHex; ms.value = WL.xMs;
+    const sync = () => { WL.xMode = mode.value; WL.xHex = hexIn.value; WL.xMs = ms.value; hexIn.hidden = mode.value !== "hex"; };
+    mode.addEventListener("change", sync); hexIn.addEventListener("input", sync); ms.addEventListener("input", sync);
+    sync();
+    raw.append(el("div", { class: "wl-x" }, mode, hexIn, el("label", { class: "small" }, t("wl.x_ms") + " ", ms),
+      el("button", { text: t("wl.x_send"), disabled: WL.busy, onclick: async () => {
+        if (WL.busy) return;
+        WL.busy = true; status(t("wl.x_busy"));
+        try {
+          const x = await run("wireless_gatt", { request: mode.value === "hex" ? hexIn.value : mode.value, listenMs: Number(ms.value) || 1500 },
+            (y) => y.error || t(y.notifications.length ? "wl.x_got" : "wl.x_none", { n: y.notifications.length }));
+          WL.xs.push(x);
+        } finally { WL.busy = false; drawWireless(); }
+      } })));
+    WL.xs.slice().reverse().forEach((x) => {
+      const box = el("div", { class: "wl-xres" });
+      box.append(el("div", { class: "small" }, el("b", { text: x.request ? t("wl.x_wrote", { n: x.request.split(" ").length }) : t("wl.x_listened") }),
+        el("span", { class: "mono small muted", text: " " + (x.request || "") })));
+      if (x.error) box.append(el("div", { class: "notice", text: x.error }));
+      x.steps.forEach((st) => box.append(el("div", { class: "mono small muted", text: st })));
+      if (x.notifications.length) {
+        const tn = el("table", { class: "list small" });
+        x.notifications.forEach((n) => tn.append(el("tr", { class: "ok" }, el("td", { class: "mono", text: "+" + n.t_ms + " ms" }),
+          el("td", { class: "mono", text: n.uuid.slice(0, 8) }), el("td", { class: "mono", text: n.len + " B" }), el("td", { class: "mono wrap", text: n.hex }))));
+        box.append(tn);
+      } else if (!x.error) box.append(el("div", { class: "small", text: t("wl.x_none") }));
+      raw.append(box);
+    });
+    root.append(raw);
+  }
+
+  // ---- HID collections and probes
+  const hid = el("div", { class: "card wl" });
+  hid.append(el("div", { class: "card-title", text: t("wl.hid") }));
+  const th = el("table", { class: "list small" });
+  th.append(el("tr", {}, ...["", t("diag.hid_page"), t("wl.lens"), t("wl.ids"), ""].map((h) => el("th", { text: h }))));
+  r.hid.forEach((c) => th.append(el("tr", { title: c.path + (c.descriptor ? "\n" + c.descriptor : "") },
+    el("td", { class: "mono", text: wlCol(c.path) }),
+    el("td", { class: "mono", text: `${hex4(c.usage_page)}/${hex4(c.usage)}${c.usage_page >= 0xff00 ? " ★" : ""}` }),
+    el("td", { class: "mono", text: `${c.input_len} / ${c.output_len} / ${c.feature_len}` }),
+    el("td", { class: "mono", text: `in ${wlIds(c.input_ids)} · out ${wlIds(c.output_ids)} · feat ${wlIds(c.feature_ids)}` }),
+    el("td", { class: "muted small", text: c.error }))));
+  hid.append(th);
+  if (r.probes.length) {
+    hid.append(el("h3", { text: t("wl.probes") }));
+    const tp = el("table", { class: "list small" });
+    r.probes.forEach((p) => tp.append(el("tr", { class: p.ok ? "ok" : "" }, el("td", { class: "mono", text: wlCol(p.path) }),
+      el("td", { text: p.method }), el("td", { class: "mono wrap", text: (p.ok ? "✓ " : "") + p.detail }))));
+    hid.append(tp);
+  }
+  root.append(hid);
+
+  // ---- GATT services
+  const gatt = el("div", { class: "card wl" });
+  gatt.append(el("div", { class: "card-title", text: t("wl.gatt") }));
+  if (r.gatt_error) gatt.append(el("div", { class: "muted small", text: r.gatt_error }));
+  r.gatt.forEach((g) => {
+    gatt.append(el("div", { class: "wl-svc" + (g.name === "vendor-specific" ? " vendor" : "") }, el("b", { text: g.name || "—" }), el("span", { class: "mono small muted", text: " " + g.uuid })));
+    const tg = el("table", { class: "list small" });
+    g.chars.forEach((c) => tg.append(el("tr", {}, el("td", { class: "mono", text: c.uuid.length > 8 ? c.uuid : "0x" + c.uuid }),
+      el("td", { text: c.name || "—" }), el("td", { class: "small", text: c.props }), el("td", { class: "mono wrap", text: c.value }))));
+    gatt.append(tg);
+  });
+  root.append(gatt);
+  $("#pages").scrollTop = keep;
 }
 
 /** Drivers of Razer devices: the standard HID driver is all open-rzr needs. */
@@ -811,7 +1075,8 @@ function showExperimental(c) {
   const key = "openrzr.exp-hidden." + (c.serial || c.pid);
   let hidden = false;
   try { hidden = localStorage.getItem(key) === "1"; } catch (_) { /* no storage */ }
-  const text = exp.length ? t("exp.probed", { list: exp.join(", ") }) : c.source === "family" ? t("exp.family") : c.source === "user" ? t("exp.user") : "";
+  // over Bluetooth nothing is written, so the "make a backup first" notice does not apply
+  const text = c.read_only ? "" : exp.length ? t("exp.probed", { list: exp.join(", ") }) : c.source === "family" ? t("exp.family") : c.source === "user" ? t("exp.user") : "";
   $("#exp-notice-text").textContent = text;
   $("#exp-notice").classList.toggle("hidden", !text || hidden);
   $("#btn-exp-hide").onclick = () => { try { localStorage.setItem(key, "1"); } catch (_) { /* no storage */ } $("#exp-notice").classList.add("hidden"); };
@@ -823,15 +1088,16 @@ function loadDevice(c) {
   kv.innerHTML = "";
   const rows = [[t("device.model"), deviceName(c.pid || 0, c.name)],
     [t("device.module"), c.verified ? t("device.module_verified") : c.source === "family" ? t("device.module_family") : c.source === "user" ? t("device.module_user") : t("device.module_db")],
-    [t("device.via"), c.openrazer ? t("device.via_or") : t("device.via_hid")],
-    [t("device.conn"), c.wireless ? t("device.wireless") : t("device.wired")],
+    [t("device.via"), c.read_only ? t("device.via_ble") : c.openrazer ? t("device.via_or") : t("device.via_hid")],
+    [t("device.conn"), c.bluetooth ? t("device.bluetooth") : c.wireless ? t("device.wireless") : t("device.wired")],
     [t("device.fw"), c.firmware], [t("device.serial"), c.serial || "—"], [t("device.profiles"), c.profiles.join(", ")],
     ...(c.side_plates ? [[t("device.plate"), plateText(S.plate ?? c.plate)]] : []),
     [t("device.path"), c.path]];
   for (const [k, v] of rows) kv.append(el("dt", { text: k }), el("dd", { text: v }));
   const n = $("#dev-notice");
   n.innerHTML = "";
-  if (!c.verified) {
+  if (c.read_only) n.append(el("div", { text: t("ble.ro_note") }));
+  else if (!c.verified) {
     n.append(el("div", { text: t("device.db_note") }),
       el("div", { class: "muted small", text: t("device.features", { list: (c.features || []).map((f) => t("feat." + f)).join(", ") }) }));
   }
@@ -842,6 +1108,27 @@ function loadDevice(c) {
   if (c.battery != null) showBattery([c.battery, c.charging]);
   if (S.plate === null || S.plate === undefined) S.plate = c.side_plates ? (c.plate ?? null) : null;
   S.plateChoice = c.plate_choice || "auto";
+  // Bluetooth: settings can be read; of them only button bindings and the sleep timer changed
+  document.body.classList.toggle("read-only", !!c.read_only);
+  const w = c.writable || c.features || [];
+  $$("[data-feat]").forEach((e) => e.classList.toggle("ble-w", w.includes(e.dataset.feat)));
+  $("#btn-power").closest(".row").classList.toggle("ble-w", w.includes("idle"));
+  $("#ble-bind-card").classList.toggle("hidden", !c.read_only);
+  $("#ble-bind").innerHTML = "";
+  if (c.read_only) quiet(loadBleBindings());
+  S.active = undefined;
+  quiet(checkActive());
+}
+
+/** Bluetooth: the bindings of the active profile, read from the mouse (both layers). */
+async function loadBleBindings() {
+  const tb = $("#ble-bind");
+  const list = await run("ble_bindings");
+  tb.innerHTML = "";
+  tb.append(el("tr", {}, el("th", { text: t("ble.bind_button") }), el("th", { text: t("btn.layer_std") }), el("th", { text: t("btn.layer_hs") })));
+  for (const b of list) {
+    tb.append(el("tr", {}, el("td", { text: buttonName(b.id) }), el("td", { text: describe(b.normal) }), el("td", { class: "muted", text: describe(b.hypershift) })));
+  }
 }
 
 /** "Razer Naga Pro (wired)" -> "NAGA PRO" for the device tab. */
@@ -990,7 +1277,7 @@ function drawProfileSelect() {
   sel.innerHTML = "";
   for (const p of S.profiles.list) {
     const slots = p.slots.length ? "  ●" + p.slots.join(",") : "";
-    sel.append(el("option", { value: p.id, text: p.name + slots }));
+    sel.append(el("option", { value: p.id, text: (p.software ? "⚡ " : "") + p.name + slots }));
   }
   sel.value = S.profiles.current;
   drawWriteState();
@@ -1094,6 +1381,9 @@ function profileMenu(anchor) {
     box.append(el("hr"));
     item("prof.link", linkPrograms, !p);
     box.append(el("hr"));
+    item("prof.soft_new", newSoftProfile);
+    if (p) item(p.software ? "prof.soft_off" : "prof.soft_on", () => toggleSoftware(p, !p.software));
+    box.append(el("hr"));
     item("prof.rename", renameProfile, !p);
     item("prof.duplicate", duplicateProfile, !p);
     item("prof.export", exportProfile, !p);
@@ -1149,6 +1439,44 @@ async function addProfile() {
   S.profiles = await run("profiles");
   drawProfileSelect();
   await openProfile(id);
+}
+
+/** "Software profile in slot 5": a copy of the current profile that open-rzr may run buttons of,
+ * put into on-board slot 5 so the other slots stay ordinary. */
+async function newSoftProfile() {
+  if (!needMouse()) return;
+  // slot 5 if the mouse has it, else the user picks one of the slots it has
+  const have = S.conn.profiles || [1];
+  const slot = await modal((box, close) => {
+    const sel = el("select");
+    fillSelect(sel, have.map((n) => {
+      const cur = S.profiles.list.find((x) => x.id === S.profiles.slots[n - 1]);
+      return [n, t("prof.soft_slot", { n, name: cur ? cur.name : t("onb.empty") })];
+    }), have.includes(5) ? 5 : have[have.length - 1]);
+    box.append(el("h2", { text: t("prof.soft_new") }), el("div", { text: t("prof.soft_new_text") }),
+      have.includes(5) ? "" : el("div", { class: "notice" }, el("span", { text: t("prof.soft_no5", { list: have.join(", ") }) + " " }),
+        S.conn && S.conn.read_only ? "" : el("button", { class: "small", text: t("onb.create_n", { n: 5 }), onclick: () => close("create5") })),
+      el("label", {}, t("prof.soft_slot_label") + " ", sel),
+      el("div", { class: "buttons" }, el("button", { text: t("common.cancel"), onclick: () => close(null) }),
+        el("button", { class: "primary", text: t("prof.soft_create"), onclick: () => close(+sel.value) })));
+  });
+  if (!slot) return;
+  if (slot === "create5") {
+    S.conn.profiles = await run("slot_create", { slot: 5 }, t("onb.created", { n: 5 }));
+    return newSoftProfile();
+  }
+  const id = await run("profile_create", { name: t("prof.soft_name_n", { n: slot }), from: "current" });
+  await run("profile_set_software", { id, on: true });
+  S.profiles = await run("slot_assign", { slot, id }, t("prof.soft_created", { n: slot }));
+  drawProfileSelect();
+  await openProfile(id);
+}
+
+async function toggleSoftware(p, on) {
+  S.profile = await run("profile_set_software", { id: p.id, on }, t(on ? "prof.soft_is_on" : "prof.soft_is_off", { name: p.name }));
+  S.profiles = await run("profiles");
+  drawProfileSelect();
+  drawCustomize();
 }
 
 async function importProfile() {
@@ -1215,6 +1543,27 @@ async function deleteProfile() {
   await openProfile(S.profiles.current);
 }
 
+/** The on-board profile the mouse uses now (it switches with its profile button). */
+async function checkActive() {
+  if (!S.conn || S.busy || document.visibilityState !== "visible") return;
+  const a = await quiet(api.call("active_slot"));
+  if (a === undefined || a === S.active) return;
+  S.active = a;
+  drawActive();
+}
+
+function drawActive() {
+  if (S.profiles) drawWriteState();
+  const c = $("#active-chip");
+  const n = S.conn ? S.active : null;
+  c.classList.toggle("hidden", !n);
+  c.innerHTML = "";
+  if (!n) return;
+  const p = S.profiles && S.profiles.list.find((x) => x.id === S.profiles.slots[n - 1]);
+  c.append(el("span", { class: "sd", style: `background:${SLOT_COLORS[n - 1]}` }), el("span", { text: t("onb.active", { n }) }));
+  c.title = p ? t("onb.active_hint", { n, name: p.name }) : t("onb.active_empty", { n });
+}
+
 /** On-board memory: which library profile sits in which of the 5 slots. */
 function onboardMenu(anchor) {
   popover(anchor, (box) => {
@@ -1223,20 +1572,44 @@ function onboardMenu(anchor) {
     for (let slot = 1; slot <= 5; slot++) {
       const sel = el("select");
       fillSelect(sel, [["", t("onb.empty")], ...S.profiles.list.map((p) => [p.id, p.name])], S.profiles.slots[slot - 1] || "");
-      sel.disabled = !S.conn.profiles.includes(slot);
+      const exists = S.conn.profiles.includes(slot);
+      sel.disabled = !exists;
       sel.addEventListener("change", async () => {
         const id = sel.value || null;
         if (id) status(t("onb.writing", { n: slot }));
         S.profiles = await run("slot_assign", { slot, id }, id ? t("onb.written", { n: slot, name: sel.selectedOptions[0].text }) : t("onb.cleared", { n: slot }));
         drawProfileSelect();
       });
-      box.append(el("div", { class: "slot" }, el("span", { class: "sd", style: `background:${SLOT_COLORS[slot - 1]}` }),
-        el("span", { class: "muted small", text: String(slot) }), sel));
+      // a slot the mouse does not have yet: create it; slots 2..5 can be deleted (not over Bluetooth)
+      const ble = !!(S.conn && S.conn.read_only);
+      const tail = !exists
+        ? ble ? "" : el("button", { class: "small", text: t("onb.create"), title: t("onb.create_hint"), onclick: () => quiet(createSlot(slot, anchor)) })
+        : S.active === slot ? el("span", { class: "chip small", text: t("onb.now") })
+        : slot > 1 && !ble ? el("button", { class: "icon small", text: "✕", title: t("onb.delete"), onclick: () => quiet(deleteSlot(slot, anchor)) }) : "";
+      box.append(el("div", { class: "slot" + (S.active === slot ? " active" : "") + (exists ? "" : " missing") }, el("span", { class: "sd", style: `background:${SLOT_COLORS[slot - 1]}` }),
+        el("span", { class: "muted small", text: String(slot) }), exists ? sel : el("span", { class: "grow muted small", text: t("onb.missing") }), tail));
     }
     const f = S.profiles.flash;
     const free = f && f[0] ? Math.round((f[1] / f[0]) * 10000) / 100 : null;
     box.append(el("div", { class: "ft" }, el("span", { class: "grow", text: t("onb.available") }), el("span", { text: free == null ? "—" : free + "%" })));
   }, "onb");
+}
+
+/** Create on-board slot `slot` (the mouse then cycles through it with its profile button). */
+async function createSlot(slot, anchor) {
+  closePopover();
+  if (!(await confirmBox(t("onb.create_title", { n: slot }), t("onb.create_text", { n: slot }), t("onb.create")))) return;
+  S.conn.profiles = await run("slot_create", { slot }, t("onb.created", { n: slot }));
+  onboardMenu(anchor);
+}
+
+async function deleteSlot(slot, anchor) {
+  closePopover();
+  if (!(await confirmBox(t("onb.delete_title", { n: slot }), t("onb.delete_text", { n: slot }), t("common.delete")))) return;
+  S.conn.profiles = await run("slot_delete", { slot }, t("onb.deleted", { n: slot }));
+  S.profiles = await run("profiles");
+  drawProfileSelect();
+  onboardMenu(anchor);
 }
 
 /** "Link programs": like Synapse's ADD A GAME/PROGRAM, plus the auto switch settings. */
@@ -1339,10 +1712,36 @@ const pairOf = (id) => S.profile && S.profile.buttons[hex2(id).toLowerCase()];
 /** Button that holds Hypershift (its standard binding is "hypershift"). */
 const isHsMod = (id) => { const b = pairOf(id); return !!b && b.normal.kind === "hypershift"; };
 
+/** Software profile: what open-rzr does for button `id` (only while the button still sends its trigger key). */
+function softOf(id) {
+  const p = S.profile;
+  if (!p || !p.software || !p.soft) return null;
+  const k = hex2(id).toLowerCase();
+  const sb = p.soft[k], n = p.buttons[k] && p.buttons[k].normal;
+  return sb && n && n.kind === "keyboard" && n.key === sb.trigger && !n.modifiers ? sb : null;
+}
+
+const SOFT_KINDS = ["key", "mouse", "media", "type", "launch", "run", "delay"];
+
+/** One program action as text. */
+function softText(a) {
+  switch (a.kind) {
+    case "key": return comboName(a.value >> 8, a.value & 0xff);
+    case "mouse": return tl("mouse", a.value, String(a.value));
+    case "media": return tl("consumer", a.value, "0x" + a.value.toString(16));
+    case "type": return "“" + a.text + "”";
+    case "launch": case "run": return a.text;
+    case "delay": return a.value + " " + t("mac.ms");
+    default: return a.kind;
+  }
+}
+
 /** Binding in the shown layer. The Hypershift layer shows what is really there: an empty binding is "Not assigned". */
 function bindingOf(id) {
   const b = pairOf(id);
   if (!b) return null;
+  const sb = softOf(id);
+  if (!S.hs && sb) return { ...b.normal, kind: "software", soft: sb };
   if (!S.hs || b.normal.kind === "hypershift") return b.normal;
   return b.hypershift || { ...defaultAction(), kind: "disabled" };
 }
@@ -1572,7 +1971,44 @@ function drawCustomize() {
   drawFigure();
   drawPad();
   drawList();
+  drawSideList();
   drawHypershift();
+}
+
+/** Like Synapse: all buttons in a column beside the picture (Settings → Window), with a filter. */
+function drawSideList() {
+  const box = $("#cust-side");
+  const open = !!(S.settings && S.settings.side_list && S.sideOpen && S.profile);
+  box.classList.toggle("hidden", !open);
+  $("#page-buttons").classList.toggle("side-open", open);
+  $("#btn-view").classList.toggle("on", open || S.view === "list");
+  if (!open) return;
+  box.innerHTML = "";
+  const filter = el("select");
+  const plate = S.conn.side_plates ? activePlate() || S.plate : null;
+  const opts = [["all", t("side.all")], ["top", t("side.top")]];
+  if (plate) opts.push(["plate", t("side.plate", { n: plate })]);
+  fillSelect(filter, opts, S.sideFilter || "all");
+  filter.addEventListener("change", () => { S.sideFilter = filter.value; drawSideList(); });
+  box.append(el("div", { class: "side-hd" }, filter,
+    el("button", { class: "icon", title: t("side.close"), text: "⇤", onclick: () => { S.sideOpen = false; drawCustomize(); } })));
+  const f = S.sideFilter || "all";
+  const ids = Object.keys(S.profile.buttons).map((k) => parseInt(k, 16)).sort((a, b) => a - b)
+    .filter((id) => !plateOf(id) || !S.conn.side_plates || plateOf(id) === plate)
+    .filter((id) => f === "all" || (f === "top" ? !plateOf(id) : !!plateOf(id)));
+  const list = el("div", { class: "side-list" });
+  ids.forEach((id, i) => {
+    const a = bindingOf(id), def = S.defaults && S.defaults[id];
+    const item = el("button", { class: "side-item" + (a.kind === "disabled" ? " off" : "") + (def && !sameAction(a, def) ? " mod" : ""), title: `${buttonName(id)} (${hex2(id)})` },
+      el("span", { class: "n", text: String(i + 1) }),
+      el("span", { class: "t" }, el("small", { text: t("kind." + a.kind) }), el("span", { text: describe(a) })));
+    item.addEventListener("click", () => editButton(id));
+    item.addEventListener("contextmenu", (e) => { e.preventDefault(); rowMenu(id); });
+    item.addEventListener("mouseenter", () => $$(`#fig [data-id="${id}"]`).forEach((x) => x.classList.add("hl")));
+    item.addEventListener("mouseleave", () => $$("#fig .hl").forEach((x) => x.classList.remove("hl")));
+    list.append(item);
+  });
+  box.append(list);
 }
 
 /** Hypershift: who holds it, warnings when the layer cannot be reached or is empty. */
@@ -1707,6 +2143,21 @@ function defaultAction() {
     macro_mode: "once", repeat: 1, stage: 1, dpi_x: 400, dpi_y: 400, profile: 1, raw: [] };
 }
 
+/** Software profile: open-rzr runs button `id` itself (only the first time is anything written to the mouse). */
+async function setSoft(id, actions) {
+  const p = curProfile();
+  const k = hex2(id).toLowerCase();
+  const before = S.profile.buttons[k] && S.profile.buttons[k].normal;
+  const back = await run("profile_set_soft", { id: p.id, button: id, actions });
+  const pair = S.profile.buttons[k] || (S.profile.buttons[k] = { normal: back, hypershift: null });
+  const wrote = !before || before.kind !== back.kind || before.key !== back.key || before.modifiers !== back.modifiers;
+  pair.normal = back;
+  S.profile.soft = { ...(S.profile.soft || {}), [k]: { trigger: back.key, actions } };
+  if (wrote) markChanged();
+  status(t(wrote ? "soft.set_written" : "soft.set", { name: buttonName(id), key: "F" + (13 + back.key - 0x68) }));
+  drawCustomize();
+}
+
 async function setButton(id, action, hs = !!S.hs) {
   const p = curProfile();
   const wasMod = isHsMod(id);
@@ -1728,6 +2179,7 @@ async function editButton(id) {
   ulog(`binding editor ${hex2(id)}`, "DEBUG");
   let act = await bindingDialog({ id, action: bindingOf(id) || defaultAction() });
   if (act === "default") return undoable(id, () => resetDefault(id));
+  if (act && act.kind === "software") return undoable(id, () => setSoft(id, act.actions));
   if (act && act.turboMedia) {
     const mid = await run("turbo_media", { code: act.code, interval: act.interval });
     act = { ...defaultAction(), kind: "macro", macro_id: mid, macro_mode: "hold" };
@@ -1747,6 +2199,8 @@ function bindingDialog(b) {
     // the Hypershift layer cannot hold Hypershift itself
     const shown = ["default", "keyboard", "mouse", "macro", "dpi", "profile", "consumer", "hypershift", "system", "scroll_mode", "disabled", "raw"]
       .filter((k) => !(S.hs && k === "hypershift"));
+    // a software profile: open-rzr can run the button itself (standard layer)
+    if (S.profile && S.profile.software && !S.hs) shown.splice(1, 0, "software");
     const groupKind = { keyboard_turbo: "keyboard", double_click: "mouse", mouse_turbo: "mouse" };
     fillSelect(kindSel, shown.map((k) => [k, t("kind." + k)]), groupKind[a.kind] || a.kind);
     const form = el("div", { class: "form" });
@@ -1799,7 +2253,54 @@ function bindingDialog(b) {
     f.raw = el("input", { class: "mono", value: a.raw && a.raw.length ? a.raw.map((x) => x.toString(16).padStart(2, "0")).join(" ") : "" });
     const note = (k) => [["", el("span", { class: "muted", text: t(k) })]];
 
+    // software: a list of program actions
+    const softList = (a.kind === "software" ? a.soft.actions : [{ kind: "key", value: 0, text: "", on: true }]).map((x) => ({ ...x }));
+    const softBox = el("div", { class: "soft-list" });
+    const drawSoft = () => {
+      softBox.innerHTML = "";
+      softList.forEach((x, i) => {
+        const kind = el("select");
+        fillSelect(kind, SOFT_KINDS.map((k) => [k, t("soft." + k)]), x.kind);
+        kind.addEventListener("change", () => { x.kind = kind.value; x.value = x.kind === "mouse" ? 1 : x.kind === "media" ? 0xcd : x.kind === "delay" ? 100 : 0; x.text = ""; drawSoft(); });
+        let w;
+        if (x.kind === "key") {
+          w = el("div", { class: "capture", tabindex: 0, text: x.value ? comboName(x.value >> 8, x.value & 0xff) : t("bind.combo_ph") });
+          let held = 0;
+          w.addEventListener("keydown", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const c = HID.fromEvent(e);
+            if (c == null) return;
+            if (HID.isModifier(c)) { held |= HID.modBit(c); x.value = held << 8; } else x.value = (held << 8) | c;
+            w.textContent = comboName(x.value >> 8, x.value & 0xff);
+          });
+          w.addEventListener("keyup", (e) => { const c = HID.fromEvent(e); if (c != null && HID.isModifier(c)) held &= ~HID.modBit(c); });
+          w.addEventListener("focus", () => { box.dataset.capture = "1"; });
+          w.addEventListener("blur", () => { delete box.dataset.capture; held = 0; });
+        } else if (x.kind === "mouse") {
+          w = el("select"); fillSelect(w, T.mouse_fn.filter(([c]) => c >= 1 && c <= 5).map(([c, n]) => [c, tl("mouse", c, n)]), x.value);
+          w.addEventListener("change", () => { x.value = +w.value; });
+        } else if (x.kind === "media") {
+          w = el("select"); fillSelect(w, T.consumer.filter(([c]) => [0xcd, 0xb5, 0xb6, 0xb7, 0xe2, 0xe9, 0xea].includes(c)).map(([c, n]) => [c, tl("consumer", c, n)]), x.value);
+          w.addEventListener("change", () => { x.value = +w.value; });
+        } else if (x.kind === "delay") {
+          w = el("input", { type: "number", class: "num", min: 1, max: 600000, value: x.value || 100 });
+          w.addEventListener("input", () => { x.value = +w.value || 0; });
+        } else {
+          w = el("input", { type: "text", class: "grow", value: x.text, placeholder: t("soft.ph_" + x.kind) });
+          w.addEventListener("input", () => { x.text = w.value; });
+        }
+        softBox.append(el("div", { class: "soft-row" }, kind, w,
+          el("button", { class: "icon", title: t("common.delete"), text: "✕", disabled: softList.length < 2, onclick: () => { softList.splice(i, 1); drawSoft(); } })));
+      });
+      softBox.append(el("div", { class: "row" },
+        el("button", { text: t("soft.add"), onclick: () => { softList.push({ kind: "type", value: 0, text: "", on: true }); drawSoft(); } }),
+        el("span", { class: "muted small", text: t(softList.length === 1 && ["key", "mouse", "media"].includes(softList[0].kind) ? "soft.hold" : "soft.list") })));
+      if (S.info && S.info.os === "linux" && softList.some((x) => ["key", "mouse", "media"].includes(x.kind))) softBox.append(el("div", { class: "muted small", text: t("soft.linux") }));
+    };
+    drawSoft();
+
     const pages = {
+      software: [["", el("span", { class: "muted", text: t("soft.note") })], [t("soft.actions"), softBox]],
       default: note("bind.default_text"),
       keyboard: [[t("bind.combo"), cap], [t("bind.key_other"), f.keyPick]],
       mouse: [[t("bind.button"), f.mbtn], [t("bind.mode"), f.mmode]],
@@ -1839,6 +2340,11 @@ function bindingDialog(b) {
     const result = () => {
       const k = kindSel.value, r = defaultAction();
       switch (k) {
+        case "software": {
+          const list = softList.filter((x) => !(["type", "launch", "run"].includes(x.kind) && !x.text.trim()) && !(x.kind === "key" && !x.value));
+          if (!list.length) throw t("soft.need");
+          return { kind: "software", actions: list.map((x) => ({ kind: x.kind, value: x.value || 0, text: x.text || "", on: true })) };
+        }
         case "default": return "default";
         case "keyboard":
           if (!key && !mods) throw t("bind.need_key");
@@ -2732,7 +3238,8 @@ function loadPower(c) {
 }
 async function applyPower() {
   if (!needMouse()) return;
-  await run("set_power", { idle: has("idle") ? +$("#idle").value * 60 : 0, low: has("low_battery") ? +$("#lowbatt").value : 0 }, t("power.saved"));
+  const w = (S.conn && S.conn.writable) || [];
+  await run("set_power", { idle: has("idle") && w.includes("idle") ? +$("#idle").value * 60 : 0, low: has("low_battery") && w.includes("low_battery") ? +$("#lowbatt").value : 0 }, t("power.saved"));
 }
 
 // ------------------------------------------------------------------ diagnostics / log
@@ -2821,6 +3328,8 @@ async function loadSettings() {
   $("#set-minimized").disabled = !S.settings.autostart;
   $("#set-close-tray").checked = S.settings.close_to_tray;
   $("#set-updates").checked = !!S.settings.updates;
+  $("#set-updates-optional").checked = !!S.settings.updates_optional;
+  $("#set-side-list").checked = !!S.settings.side_list;
   $("#log-level").value = S.settings.log_level;
   $$('input[name="ui-style"]').forEach((r) => { r.checked = r.value === (S.style || "synapse"); });
   await quiet(loadOpenRazer());
@@ -2864,6 +3373,25 @@ async function checkPoly() {
 }
 
 /** The daemon talks to the mouse too: warn when we are not going through its driver. */
+/** Linux: the access rule (udev) — installed, outdated or missing; offer to update an old one once. */
+async function checkUdev(offer) {
+  let u;
+  try { u = await api.call("udev_state"); } catch (_) { return; }
+  $("#udev-card").classList.toggle("hidden", !u.linux);
+  if (!u.linux) return;
+  $("#udev-state").textContent = !u.present ? t("udev.missing") : u.current ? t("udev.current") : t("udev.outdated");
+  $("#btn-udev").textContent = u.present ? t("udev.update") : t("udev.install");
+  if (offer && u.present && !u.current && !S.udevOffered) {
+    S.udevOffered = true;
+    if (await confirmBox(t("udev.outdated_title"), t("udev.outdated_text"), t("udev.update"))) await installUdev();
+  }
+}
+
+async function installUdev() {
+  await run("install_udev", {}, t("udev.done_relogin"));
+  await quiet(checkUdev(false));
+}
+
 async function checkOpenRazer() {
   const o = await loadOpenRazer();
   const conflict = o && o.supported_os && o.daemon_running && S.conn && !S.conn.openrazer;
@@ -3040,11 +3568,24 @@ async function askUpdates() {
 }
 
 /** "0.6.10" > "0.6.9" */
+/** "0.8.1.1", "v0.8.1+1", "0.8.1" → [0, 8, 1, 1] (four numbers, the missing ones are 0). */
+function versionParts(v) {
+  const p = String(v).replace(/^v/i, "").split(/[.+-]/).map((x) => parseInt(x, 10) || 0);
+  while (p.length < 4) p.push(0);
+  return p.slice(0, 4);
+}
+
+/** Is version `a` newer than `b`? */
 function newerVersion(a, b) {
-  const p = (v) => String(v).replace(/^v/, "").split(/[.-]/).map((x) => parseInt(x, 10) || 0);
-  const x = p(a), y = p(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  const x = versionParts(a), y = versionParts(b);
+  for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] > y[i];
   return false;
+}
+
+/** A newer `a` that differs from `b` only in the fourth number: an optional update. */
+function optionalOnly(a, b) {
+  const x = versionParts(a), y = versionParts(b);
+  return x[0] === y[0] && x[1] === y[1] && x[2] === y[2] && x[3] > y[3];
 }
 
 /**
@@ -3064,10 +3605,16 @@ async function checkUpdates(manual) {
     if (manual) state.textContent = t("upd.failed");
     return;
   }
-  const ver = String(rel.tag_name || "").replace(/^v/, "");
-  const newer = ver && !rel.draft && !rel.prerelease && newerVersion(ver, S.info.version);
-  await quiet(api.call("update_checked", { result: newer ? `${ver} available` : `up to date (latest ${ver || "?"})` }));
-  if (!newer) { if (manual) state.textContent = t("upd.latest", { v: S.info.version }); return; }
+  const ver = String(rel.tag_name || "").replace(/^v/, "").replace("+", ".");
+  let newer = ver && !rel.draft && !rel.prerelease && newerVersion(ver, S.info.version);
+  // only the fourth number changed: an optional update, told about only when chosen in Settings
+  const optional = newer && optionalOnly(ver, S.info.version);
+  if (optional && !S.settings.updates_optional) newer = false;
+  await quiet(api.call("update_checked", { result: newer ? `${ver} available${optional ? " (optional)" : ""}` : optional ? `optional ${ver} not shown (off in Settings)` : `up to date (latest ${ver || "?"})` }));
+  if (!newer) {
+    if (manual) state.textContent = optional ? t("upd.optional_hidden", { v: ver }) : t("upd.latest", { v: S.info.version });
+    return;
+  }
   if (manual) state.textContent = t("upd.available", { v: ver });
   if (!manual && S.settings.update_skip === ver) return;
   S.update = { version: ver, url: String(rel.html_url || "").startsWith(PROJECT) ? rel.html_url : `${PROJECT}/releases/latest` };
@@ -3083,6 +3630,10 @@ function bindUpdates() {
   $("#set-updates").addEventListener("change", async (e) => {
     S.settings.updates = e.target.checked;
     await run("set_updates", { enabled: e.target.checked }, t("set.saved"));
+  });
+  $("#set-updates-optional").addEventListener("change", async (e) => {
+    S.settings.updates_optional = e.target.checked;
+    await run("set_updates_optional", { enabled: e.target.checked }, t("set.saved"));
   });
   $("#btn-update-check").addEventListener("click", () => quiet(checkUpdates(true)));
   $("#btn-eula").addEventListener("click", () => quiet(showAgreement(false)));
@@ -3157,7 +3708,17 @@ function bind() {
   $("#btn-all").addEventListener("change", drawList);
   $("#btn-layer").addEventListener("click", (e) => layerMenu(e.currentTarget));
   $$("#layer-seg button").forEach((b) => b.addEventListener("click", () => { S.hs = b.dataset.hs === "1"; ulog("layer: " + (S.hs ? "Hypershift" : "Standard"), "DEBUG"); drawCustomize(); }));
-  $("#btn-view").addEventListener("click", () => { S.view = S.view === "list" ? "figure" : "list"; drawCustomize(); });
+  $("#btn-view").addEventListener("click", () => {
+    // Settings: a list of all buttons beside the picture (like Synapse), or the picture swapped for a table
+    if (S.settings && S.settings.side_list) { S.sideOpen = !S.sideOpen; S.view = "figure"; } else S.view = S.view === "list" ? "figure" : "list";
+    drawCustomize();
+  });
+  $("#set-side-list").addEventListener("change", async (e) => {
+    S.settings.side_list = e.target.checked;
+    if (!e.target.checked) S.sideOpen = false;
+    await run("set_side_list", { enabled: e.target.checked }, t("set.saved"));
+    drawCustomize();
+  });
   $$("#plate-box .plate").forEach((b) => b.addEventListener("click", () => {
     if (!S.conn) return;
     S.figView = b.dataset.view;
@@ -3179,10 +3740,11 @@ function bind() {
   $("#idle").addEventListener("input", powerLabels);
   $("#lowbatt").addEventListener("input", powerLabels);
   $("#btn-power").addEventListener("click", applyPower);
+  $("#btn-udev").addEventListener("click", () => quiet(installUdev()));
   $("#log-filter").addEventListener("change", applyLogFilter);
   $("#btn-logdir").addEventListener("click", () => run("open_log_folder"));
   $("#btn-report").addEventListener("click", () => run("save_report", {}, (p) => t("diag.report_saved", { path: p })));
-  $("#btn-raw").addEventListener("click", sendRaw);
+  $("#btn-raw").addEventListener("click", () => quiet(sendRaw()));
   // settings
   $("#set-lang").addEventListener("change", () => setLanguage($("#set-lang").value));
   $("#set-autostart").addEventListener("change", () => { $("#set-minimized").disabled = !$("#set-autostart").checked; saveAutostart(); });
@@ -3190,7 +3752,8 @@ function bind() {
   $("#btn-hidlist").addEventListener("click", () => quiet(showHidList()));
   $("#btn-drivers").addEventListener("click", () => quiet(showDrivers()));
   $("#btn-devfiles").addEventListener("click", () => quiet(showDeviceFiles()));
-  $("#btn-wireless").addEventListener("click", () => quiet(showWireless()));
+  $$("#diag-views button").forEach((b) => b.addEventListener("click", () => showDiagView(b.dataset.v)));
+  $("#btn-ble-bind").addEventListener("click", () => quiet(loadBleBindings()));
   $("#set-autowrite").addEventListener("change", async (e) => {
     if (!S.profiles) { e.target.checked = false; return status(t("wr.need_mouse"), true); }
     S.profiles = await run("set_autowrite", { on: e.target.checked }, t("set.saved"));
@@ -3248,6 +3811,7 @@ async function init() {
   if (!S.conn) await quiet(checkRazer()); // Synapse holding the mouse is a common reason it does not answer
   setInterval(refreshBattery, 60000);
   setInterval(checkPlate, 5000);
+  setInterval(() => quiet(checkActive()), 3000);
   watchRazer();
   quiet(autoCheckUpdates());
   setInterval(checkPoly, 10000); // Linux: Polychromatic started or closed // swap the plate — the list follows (Auto mode, Buttons tab open)

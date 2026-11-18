@@ -28,19 +28,43 @@ pub(crate) async fn macros_on_mouse(st: State<'_, AppState>) -> R<MacrosOnMouse>
     })
 }
 
-/// Build the program-actions table from the library (trigger key -> actions).
+/// Build the program-actions table (trigger key -> actions): macros of the library with program
+/// actions, and the software buttons of every profile.
 pub(crate) fn program_table(store: &Store) -> HashMap<u8, (String, Vec<SoftAction>)> {
-    store
+    let mut t: HashMap<u8, (String, Vec<SoftAction>)> = store
         .macros
         .iter()
         .filter_map(|(n, m)| {
             let acts: Vec<SoftAction> = m.software.iter().filter(|a| a.on).cloned().collect();
             match (m.trigger, acts.is_empty()) {
-                (Some(k), false) => Some((k, (n.clone(), acts))),
+                (Some(k), false) => Some((k, (format!("macro \"{n}\""), acts))),
                 _ => None,
             }
         })
-        .collect()
+        .collect();
+    for p in library::list().iter().filter(|p| p.software) {
+        for (id, sb) in p.active_soft() {
+            let acts: Vec<SoftAction> = sb.actions.iter().filter(|a| a.on).cloned().collect();
+            if acts.is_empty() {
+                continue;
+            }
+            if let Some((other, _)) = t.get(&sb.trigger) {
+                log_warn!("app", "{} of profile \"{}\" is also used by {other}: skipped", program_actions::trigger_name(sb.trigger), p.name);
+                continue;
+            }
+            t.insert(sb.trigger, (format!("profile \"{}\" button 0x{id:02x}", p.name), acts));
+        }
+    }
+    t
+}
+
+/// Trigger keys in use: macros with program actions and software buttons of every profile.
+pub(crate) fn used_triggers(store: &Store) -> Vec<u8> {
+    let mut v: Vec<u8> = store.macros.values().filter_map(|m| m.trigger).collect();
+    for p in library::list() {
+        v.extend(p.soft.values().map(|s| s.trigger));
+    }
+    v
 }
 
 pub(crate) fn refresh_program_table(st: &AppState) {
@@ -54,10 +78,13 @@ pub(crate) fn refresh_program_table(st: &AppState) {
 pub(crate) fn compile_doc(store: &Store, name: &str, items: &[Item], software: &[SoftAction]) -> Result<Compiled, String> {
     let trigger = if software.iter().any(|a| a.on) {
         let own = store.macros.get(name).and_then(|m| m.trigger);
-        let used: Vec<u8> = store.macros.iter().filter(|(n, _)| n.as_str() != name).filter_map(|(_, m)| m.trigger).collect();
+        let mut used: Vec<u8> = store.macros.iter().filter(|(n, _)| n.as_str() != name).filter_map(|(_, m)| m.trigger).collect();
+        for p in library::list() {
+            used.extend(p.soft.values().map(|s| s.trigger));
+        }
         match own.filter(|k| !used.contains(k)).or_else(|| macro_doc::free_trigger(&used)) {
             Some(k) => Some(k),
-            None => return Err("[triggers|] all trigger keys F13–F24 are taken by other macros with program actions".into()),
+            None => return Err("[triggers|] all trigger keys F13–F24 are taken by other macros and software buttons".into()),
         }
     } else {
         None

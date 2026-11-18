@@ -68,7 +68,7 @@
   const fp = (p) => JSON.stringify([p.buttons, p.dpi_stages]);
   const pinfo = () => ({ list: Object.values(st.lib2).map((p) => { const slots = st.slots.map((x, i) => (x === p.id ? i + 1 : 0)).filter(Boolean);
       slots.forEach((n) => { if (st.written[n] === undefined) st.written[n] = fp(p); });
-      return { id: p.id, name: p.name, links: p.links, slots, written: slots.length ? slots.every((n) => st.written[n] === fp(p)) : null }; }),
+      return { id: p.id, name: p.name, links: p.links, software: !!p.software, slots, written: slots.length ? slots.every((n) => st.written[n] === fp(p)) : null }; }),
     current: st.cur, slots: st.slots, flash: [92160, 91912, 248], autoswitch: st.auto2, linking: true, autowrite: !!st.autowrite });
   // tiny stand-in for macro_doc::compile (loops unrolled, nested macros inlined, ASCII text)
   const mcompile = (name, items, software) => {
@@ -105,7 +105,7 @@
     return { ok: true, error: "", steps: flat.length, size, ms: flat.filter((s) => s.kind === "delay").reduce((a, s) => a + s.value, 0), trigger: trigger || "", lines, flat };
   };
   const H = {
-    app_info: () => ({ version: "0.5.0", hotplug: true, os: window.__OS__ || "windows", log_file: "C:\\Users\\us\\AppData\\Roaming\\open-rzr\\logs\\open-rzr.log", config_dir: "x", mock: true, log_level: "DEBUG", openrazer_db: "477f4d6 2026-10-05", db_models: 117 }),
+    app_info: () => ({ version: "0.8.1.1", hotplug: true, os: window.__OS__ || "windows", log_file: "C:\\Users\\us\\AppData\\Roaming\\open-rzr\\logs\\open-rzr.log", config_dir: "x", mock: true, log_level: "DEBUG", openrazer_db: "477f4d6 2026-10-05", db_models: 117 }),
     tables: () => ({
       kinds: [["keyboard", "Клавиша / сочетание"], ["keyboard_turbo", "Турбо-клавиша"], ["mouse", "Кнопка мыши"], ["double_click", "Двойной клик"], ["mouse_turbo", "Турбо-клик"], ["macro", "Макрос"], ["dpi", "Переключение DPI"], ["profile", "Переключение профиля"], ["consumer", "Медиа-клавиша"], ["hypershift", "Hypershift"], ["system", "Питание ПК"], ["scroll_mode", "Режим колеса"], ["disabled", "Отключена"], ["raw", "Сырые байты"]],
       dpi_ops: [[1, "DPI: следующая"], [2, "DPI: предыдущая"], [6, "по кругу"], [7, "назад"], [3, "стадия"], [5, "Снайпер"]],
@@ -122,11 +122,13 @@
     connect: ({ candidates }) => { if (!Array.isArray(candidates) || !candidates[0].path) throw "bad candidates"; log("device", "подключено");
       const ALLF = ["firmware", "serial", "dpi", "dpi_stages", "polling", "battery", "charging", "idle", "low_battery", "lighting", "buttons", "macros", "profiles", "side_plate"];
       const ZE = { scroll: ["off", "static", "spectrum", "wave", "breath_single", "breath_dual", "breath_random", "reactive"], logo: ["off", "static", "spectrum", "wave", "breath_single", "breath_dual", "breath_random", "reactive"], side: ["off", "static", "custom", "spectrum", "breath_single", "breath_dual", "breath_random", "reactive"] };
+      if (window.__BLE__) return { name: "Razer Naga Pro (Bluetooth)", pid: 0x92, path: candidates[0].path, verified: false, source: "family", experimental: [], features: ["firmware", "serial", "dpi", "dpi_stages", "battery", "charging", "idle", "low_battery", "lighting", "buttons"], writable: ["buttons", "idle"], openrazer: null,
+        zone_effects: ZE, wireless: false, bluetooth: true, read_only: true, has_battery: true, max_dpi: 20000, max_stages: 5, lighting: ["scroll", "logo", "side"], firmware: "v2.1", serial: "PM2107H16300460", dpi: [3200, 3200], stages: { active: 2, stages: [[800, 800], [3200, 3200], [6400, 6400]] }, poll: null, battery: 96, charging: false, idle: 300, low: 5, profiles: [1, 2], side_plates: false, plate: null, plate_choice: "auto" };
       if (st.db) return { name: "Razer Basilisk V3", pid: 0x99, path: candidates[0].path, verified: false, source: "openrazer", experimental: st.db === "probe" ? ["buttons", "macros", "profiles"] : [], features: ["firmware", "serial", "dpi", "dpi_stages", "polling", "lighting", ...(st.db === "probe" ? ["buttons", "macros", "profiles"] : [])], openrazer: st.or.bridged ? "/sys/bus/hid/drivers/razermouse/0003:1532:0099.0004" : null,
         zone_effects: { logo: ZE.logo, scroll: ["off", "static", "spectrum", "breath_single", "breath_dual", "breath_random", "reactive"] }, wireless: false, has_battery: false, max_dpi: 26000, max_stages: 5, lighting: ["scroll", "logo"], firmware: "v1.3", serial: "PM21", dpi: st.dpi, stages: st.stages[1], poll: 1000, battery: null, charging: false, idle: null, low: null, profiles: [1], side_plates: false, plate: null, plate_choice: "auto" };
-      return { pid: 0x8f, verified: true, features: ALLF, openrazer: st.or.bridged ? "/sys/bus/hid/drivers/razermouse/0003:1532:008F.0005" : null, zone_effects: ZE, name: "Razer Naga Pro (кабель)", path: candidates[0].path, wireless: false, has_battery: true, max_dpi: 20000, max_stages: 5, lighting: ["scroll", "logo", "side"], firmware: "v1.5", serial: "PM2041H0001", dpi: st.dpi, stages: st.stages[1], poll: 1000, battery: 78, charging: false, idle: 300, low: 15, profiles: [1, 2, 3, 4, 5], side_plates: true, plate: st.plate, plate_choice: st.choice }; },
+      return { pid: 0x8f, verified: true, features: ALLF, openrazer: st.or.bridged ? "/sys/bus/hid/drivers/razermouse/0003:1532:008F.0005" : null, zone_effects: ZE, name: "Razer Naga Pro (кабель)", path: candidates[0].path, wireless: false, has_battery: true, max_dpi: 20000, max_stages: 5, lighting: ["scroll", "logo", "side"], firmware: "v1.5", serial: "PM2041H0001", dpi: st.dpi, stages: st.stages[1], poll: 1000, battery: 78, charging: false, idle: 300, low: 15, profiles: window.__SLOTS2__ ? (st.mslots = st.mslots || [1, 2]) : [1, 2, 3, 4, 5], side_plates: true, plate: st.plate, plate_choice: st.choice }; },
     battery: () => { if (st.failBattery) throw "[disconnected] HIDIOCGFEATURE: No such device"; return [77, true]; },
-    get_settings: () => ({ language: st.lang, autostart: st.auto.enabled, start_minimized: st.auto.minimized, close_to_tray: st.closeTray, log_level: "DEBUG", ui_style: st.style, updates: st.updates === undefined ? null : st.updates, update_skip: st.skipped || "" }),
+    get_settings: () => ({ language: st.lang, autostart: st.auto.enabled, start_minimized: st.auto.minimized, close_to_tray: st.closeTray, log_level: "DEBUG", ui_style: st.style, updates: st.updates === undefined ? null : st.updates, update_skip: st.skipped || "", updates_optional: !!st.updatesOptional, side_list: !!st.sideList }),
     set_ui_style: ({ style }) => { st.style = style; return null; },
     set_language: ({ language }) => { st.lang = language; return null; },
     set_autostart: ({ enabled, minimized }) => { st.auto = { enabled, minimized }; return st.auto; },
@@ -134,7 +136,9 @@
     default_action: ({ id }) => (id >= 0x40 && id <= 0x4b ? A({ kind: "keyboard", key: [0x1e,0x1f,0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x2d,0x2e][id - 0x40] }) : null),
     quit_app: () => null,
     button_names: () => st.names,
-    install_udev: () => null,
+    install_udev: () => { st.udevInstalled = true; return null; },
+    // ?os=linux&udevold: the rule of an older version is installed
+    udev_state: () => ({ linux: window.__OS__ === "linux", present: window.__OS__ === "linux" && (!!window.__UDEVOLD__ || !!st.udevInstalled), current: !!st.udevInstalled || (window.__OS__ === "linux" && !window.__UDEVOLD__), path: "/etc/udev/rules.d/99-open-rzr.rules" }),
     set_dpi_stages: ({ stages, active, profile }) => { st.stages[profile] = { active, stages }; st.dpi = stages[active - 1]; return st.dpi; },
     get_dpi_stages: ({ profile }) => st.stages[profile] || { active: 1, stages: [[800, 800]] },
     set_polling: ({ hz }) => { if (![125, 500, 1000].includes(hz)) throw "hz"; return null; },
@@ -192,6 +196,14 @@
     profile_export: ({ id }) => "C:\\Users\\us\\Downloads\\" + st.lib2[id].name.toLowerCase() + ".openrzr.json",
     profile_import: ({ text }) => { const p = JSON.parse(text); if (p.format !== "open-rzr-profile") throw "[invalid] not an open-rzr profile"; const id = "p" + (++st.pn); st.lib2[id] = { ...p, id }; return id; },
     open_folder_of: ({ path }) => null,
+    active_slot: () => st.activeSlot ?? 1,
+    profile_set_software: ({ id, on }) => { st.lib2[id].software = on; if (!on) st.lib2[id].soft = {}; return clone(st.lib2[id]); },
+    profile_set_soft: ({ id, button, actions }) => { const p = st.lib2[id]; if (!p.software) throw "[invalid] program actions on a button need a software profile";
+      const k = "0x" + button.toString(16).padStart(2, "0"); p.soft = p.soft || {};
+      const used = Object.values(st.lib2).flatMap((q) => Object.values(q.soft || {}).map((x) => x.trigger));
+      const trig = (p.soft[k] && p.soft[k].trigger) || [...Array(12).keys()].map((i) => 0x68 + i).find((x) => !used.includes(x));
+      p.soft[k] = { trigger: trig, actions }; const b = p.buttons[k] || (p.buttons[k] = { normal: null, hypershift: null });
+      b.normal = A({ kind: "keyboard", key: trig, modifiers: 0 }); (st.softCalls = st.softCalls || []).push(k); return clone(b.normal); },
     slot_assign: ({ slot, id }) => { st.slots[slot - 1] = id; st.written[slot] = id ? fp(st.lib2[id]) : undefined; return pinfo(); },
     profile_write: ({ id }) => { st.slots.forEach((x, i) => { if (x === id) st.written[i + 1] = fp(st.lib2[id]); }); st.writes = (st.writes || 0) + 1; return pinfo(); },
     set_autowrite: ({ on }) => { st.autowrite = on; return pinfo(); },
@@ -208,6 +220,27 @@
     wireless_gatt: ({ request, listenMs }) => ({ request: request === "fw" ? "00 1f 00 00 00 02 00 81 00 00" : request, error: "",
       steps: ["service interface \\\\?\\BTHLEDevice#{52401523-f97c-7f90-0e7f-6c6f4e36db1c}_Dev_VID&021532_PID&0092_REV&0001_eac88650b167", "char 52401524-… handle 60 value handle 61 write 1", "subscribe 52401525-…: OK", "subscribe 52401526-…: OK", "listen to 2 characteristics: OK", "write 90 bytes to 52401524-…: OK", "read 52401525-…: 00"],
       notifications: request ? [{ t_ms: 42, handle: 64, uuid: "52401525-f97c-7f90-0e7f-6c6f4e36db1c", hex: "02 1f 00 00 00 02 00 81 02 01", len: 20 }] : [] }),
+    ble_get: ({ classes, cmds, subs }) => {
+      const known = { "00 81": ["02 01 00 00", "firmware v2.01"], "05 81": ["fc", "battery 99 % (252)"], "0b 84": ["02 03 01 20 03 20 03 00 00 02 80 0c 80 0c 00 00 03 00 19 00 19 00", "DPI stages, active 2: 1: 800×800, 2: 3200×3200, 3: 6400×6400"], "10 83": ["03 00 00 00 00 00 00 00 00 00", "lighting effect 3 (spectrum)"] };
+      const range = (s) => { const out = []; String(s).split(/[,\s]+/).filter(Boolean).forEach((p) => { const [a, b] = p.split("-").map((x) => parseInt(x, 16)); for (let x = a; x <= (b ?? a); x++) out.push(x); }); return out; };
+      const sub = (subs || "00 00").split(",")[0].trim();
+      st.bleCalls = (st.bleCalls || 0) + 1;
+      const rows = [];
+      for (const c of range(classes)) for (const m of range(cmds)) {
+        const k = [c, m].map((x) => x.toString(16).padStart(2, "0")).join(" ");
+        const hit = known[k];
+        rows.push({ class: c, cmd: m, sub, status: hit ? 2 : 5, status_name: hit ? "OK" : "NOT_SUPPORTED", len: hit ? hit[0].split(" ").length : 0, data: hit ? hit[0] : "", meaning: hit ? hit[1] : "", ms: 25, error: "" });
+      }
+      return rows;
+    },
+    ble_bindings: () => [
+      { id: 0x01, normal: { kind: "mouse", button: 1 }, hypershift: { kind: "mouse", button: 1 } },
+      { id: 0x34, normal: { kind: "mouse_turbo", button: 9, interval: 100 }, hypershift: { kind: "mouse_turbo", button: 9, interval: 20 } },
+      { id: 0x40, normal: { kind: "keyboard", key: 0x35, modifiers: 0 }, hypershift: { kind: "keyboard", key: 0x1e, modifiers: 0 } },
+      { id: 0x41, normal: { kind: "mouse", button: 4 }, hypershift: { kind: "keyboard", key: 0x1f, modifiers: 0 } }],
+    ble_selftest: ({ step, way, value }) => { (st.selftest = st.selftest || []).push(step + (value ? ":" + way + value : ""));
+      if (step === "targets") return { ok: true, way: 2, same: null, lines: ["active profile: 03 82 sub 00 00 → 02 OK [02]"] };
+      return { ok: true, way: way ?? 0, same: step === "target_write" ? value !== "f" : true, lines: [`${step}: 08 04 sub 0${way ?? 0} 4b → 02 OK`] }; },
     hide_to_tray: () => { st.hidden = true; return null; },
     close_cancelled: () => { st.cancelled = true; return null; },
     ui_state_get: () => st.ui || "",
@@ -219,6 +252,10 @@
     first_run: () => ({ agreement_edition: 2, agreement_accepted: !!st.agreed || !window.__FIRSTRUN__, updates: st.updates === undefined ? (window.__FIRSTRUN__ ? null : false) : st.updates }),
     agreement_accept: () => { st.agreed = true; return null; },
     agreement_decline: () => { st.quit = true; return null; },
+    set_side_list: ({ enabled }) => { st.sideList = enabled; return null; },
+    slot_create: ({ slot }) => { st.mslots = [...new Set([...(st.mslots || [1, 2]), slot])].sort(); return st.mslots; },
+    slot_delete: ({ slot }) => { st.mslots = (st.mslots || [1, 2, 3, 4, 5]).filter((x) => x !== slot); st.slots[slot - 1] = null; return st.mslots; },
+    set_updates_optional: ({ enabled }) => { st.updatesOptional = enabled; return null; },
     set_updates: ({ enabled }) => { st.updates = enabled; return null; },
     update_due: () => !!st.updates,
     update_checked: ({ result }) => { st.updateResult = result; return null; },

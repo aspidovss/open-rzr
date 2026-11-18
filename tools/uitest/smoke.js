@@ -74,7 +74,7 @@ async function shot(p, name) {
 
     // diagnostics dialogs
     await p.click('#tabs button[data-tab="diag"]');
-    for (const id of ["#btn-hidlist", "#btn-drivers", "#btn-devfiles", "#btn-wireless"]) {
+    for (const id of ["#btn-hidlist", "#btn-drivers", "#btn-devfiles"]) {
       await p.click(id);
       await p.waitForSelector("#modal:not(.hidden)", { timeout: 5000 });
       await p.waitForTimeout(150);
@@ -84,6 +84,47 @@ async function shot(p, name) {
       await p.evaluate(() => { const m = document.querySelector("#modal"); if (m && !m.classList.contains("hidden")) m.querySelector(".buttons button.primary, .buttons button:last-child")?.click(); });
       await p.waitForTimeout(150);
     }
+
+    // Wireless view: known commands, a scan, the raw GATT channel; back to the log
+    await p.click("#btn-wireless"); await p.waitForSelector("#diag-wl-view:not(.hidden) .card.wl");
+    check(`${lang}: wireless view replaces the log`, !(await p.isVisible("#log")));
+    await p.click('#diag-wl-view button:has-text("' + (lang === "en" ? "Read what is known" : "Прочитать известное") + '")');
+    await p.waitForFunction(() => document.querySelectorAll("#diag-wl-view tr.ok").length >= 4, null, { timeout: 5000 });
+    check(`${lang}: known commands decoded`, /800×800/.test(await p.textContent("#diag-wl-view")));
+    await p.evaluate(() => { WL.scanCls = "00-02"; });
+    await p.evaluate(() => { window.__realConfirm = confirmBox; window.confirmBox = async () => true; });
+    await p.click('#diag-wl-view button:has-text("' + (lang === "en" ? "Start" : "Начать") + '")');
+    await p.waitForFunction(() => window.__ST__.bleCalls >= 12, null, { timeout: 5000 });
+    await p.evaluate(() => { window.confirmBox = window.__realConfirm; });
+    await p.waitForTimeout(200);
+    check(`${lang}: scan runs class by class`, await p.evaluate(() => WL.ble.length === 9 + 96));
+    check(`${lang}: "not supported" hidden`, (await p.$$eval("#diag-wl-view .card.wl:first-of-type tr", (r) => r.length)) < 20);
+    await shot(p, `${lang}-wireless`);
+    // write self-test: 3 stages, the user confirms the key F
+    await p.evaluate(() => { window.__realConfirm = confirmBox; window.confirmBox = async () => true; });
+    await p.click('#diag-wl-view button:has-text("' + (lang === "en" ? "Run the self-test" : "Запустить самопроверку") + '")');
+    await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 });
+    await p.evaluate(() => { window.confirmBox = window.__realConfirm; });
+    // variant 1 (active profile 2): "=", variant 2 (live profile 1): "7" (found, stops), then the check after restore: "="
+    for (const key of ["=", "7", "="]) {
+      await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 });
+      await p.waitForTimeout(100);
+      await p.keyboard.press(key === "=" ? "Equal" : "Digit7"); await p.waitForTimeout(450);
+    }
+    // stage 5: agree, "switch the mouse off and on", continue, press the button
+    const ok5 = lang === "en" ? "Check" : "Проверить", go5 = lang === "en" ? "Continue" : "Продолжить";
+    await p.click(`#modal:not(.hidden) button:has-text("${ok5}")`); await p.waitForTimeout(200);
+    await p.click(`#modal:not(.hidden) button:has-text("${go5}")`); await p.waitForTimeout(200);
+    await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 }); await p.waitForTimeout(100);
+    await p.keyboard.press("Digit7"); await p.waitForTimeout(450);
+    check(`${lang}: self-test ran all steps`, (await p.evaluate(() => (window.__ST__.selftest || []).join(","))) === "sleep,targets,target_write:2f,target_write:2orig,target_write:1f,target_write:1orig,target_write:1hs_f,target_write:1hs_orig,target_write:1f,read_target,target_write:1orig",
+      await p.evaluate(() => (window.__ST__.selftest || []).join(",")));
+    check(`${lang}: self-test passed`, await p.evaluate(() => WL.test.stages.every((x) => x.ok)));
+    check(`${lang}: Hypershift and off/on stages reported`, await p.evaluate(() => WL.test.stages[3].note === t("wl.t_hs_ok") && WL.test.stages[4].note === t("wl.t_persist_yes")), await p.evaluate(() => WL.test.stages[3].note + " | " + WL.test.stages[4].note));
+    check(`${lang}: self-test names the profile that works`, await p.evaluate(() => WL.test.stages[2].note.startsWith(t("wl.t_found", { p: "1" })) && !WL.test.stages[2].note.includes(t("wl.t_not_restored"))), await p.evaluate(() => WL.test.stages[2].note));
+    await shot(p, `${lang}-selftest`);
+    await p.click("#diag-views button[data-v=log]"); await p.waitForTimeout(100);
+    check(`${lang}: back to the log`, await p.isVisible("#log"));
 
     // raw command: size in hex
     await p.fill("#raw-cmd", "028c"); await p.fill("#raw-args", "01 34 00");
@@ -191,6 +232,134 @@ async function shot(p, name) {
     check("installed: no own removal dialog", !(await p.isVisible("#rm-data")));
     await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(150);
     check("installed: runs the uninstaller", await p.evaluate(() => !!window.__ST__.uninstaller));
+    await p.context().close();
+  }
+  // software profile in slot 5: a side button run by open-rzr
+  for (const lang of ["en", "ru"]) {
+    const { p, errors } = await open(browser, "lang=" + lang);
+    check(`${lang}: active slot shown`, /1/.test(await p.textContent("#active-chip")) && await p.isVisible("#active-chip"));
+    await p.evaluate(() => { newSoftProfile(); }); await p.waitForSelector("#modal:not(.hidden) select");
+    await shot(p, `${lang}-soft-new`);
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(400);
+    check(`${lang}: software profile in slot 5`, await p.evaluate(() => S.profile.software && S.profiles.slots[4] === S.profile.id));
+    await p.evaluate(() => { window.__ST__.activeSlot = 5; }); await p.evaluate(() => checkActive()); await p.waitForTimeout(100);
+    check(`${lang}: active slot follows the mouse`, /5/.test(await p.textContent("#active-chip")));
+    await p.click("#btn-onboard"); await p.waitForTimeout(150);
+    check(`${lang}: active slot marked in the memory list`, await p.isVisible(".onb .slot.active"));
+    await shot(p, `${lang}-onboard-active`);
+    await p.keyboard.press("Escape"); await p.mouse.click(5, 400); await p.waitForTimeout(100);
+    await p.evaluate(() => { S.figView = "12"; showPage("buttons"); });
+    await p.evaluate(() => { editButton(0x40); }); await p.waitForSelector("#modal:not(.hidden) select");
+    await p.selectOption("#dialog > select", "software"); await p.waitForTimeout(100);
+    await p.click("#dialog .soft-row .capture"); await p.keyboard.press("Control+KeyC");
+    await p.click('#dialog button:has-text("' + (lang === "en" ? "+ Action" : "+ Действие") + '")');
+    await p.fill("#dialog .soft-row:nth-of-type(2) input", "hello");
+    await shot(p, `${lang}-soft-editor`);
+    await p.click("#dialog .buttons button.primary"); await p.waitForTimeout(300);
+    const soft = await p.evaluate(() => S.profile.soft["0x40"]);
+    check(`${lang}: button 0x40 run by open-rzr`, !!soft && soft.trigger === 0x68 && soft.actions.length === 2 && soft.actions[0].value === ((0x01 << 8) | 0x06), JSON.stringify(soft));
+    check(`${lang}: shown with ⚡`, /⚡/.test(await p.evaluate(() => describe(bindingOf(0x40)))));
+    await shot(p, `${lang}-soft-buttons`);
+    check(`${lang}: software profile without JavaScript errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  // a mouse over Bluetooth: read-only
+  for (const lang of ["en", "ru"]) {
+    const errors = [];
+    const p = await (await browser.newContext({ viewport: { width: 1200, height: 860 } })).newPage();
+    p.on("pageerror", (e) => errors.push(e.message));
+    p.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    await p.goto(page + "?lang=" + lang + "&ble");
+    await p.waitForFunction(() => typeof S === "object" && !!S.conn, null, { timeout: 15000 });
+    await p.evaluate(() => showPage("device")); await p.waitForTimeout(200);
+    await p.waitForFunction(() => document.querySelectorAll("#ble-bind tr").length >= 5, null, { timeout: 5000 });
+    check(`${lang}: Bluetooth bindings shown`, await p.isVisible("#ble-bind-card"));
+    check(`${lang}: read-only mode`, await p.evaluate(() => document.body.classList.contains("read-only")));
+    await shot(p, `${lang}-ble-device`);
+    await p.evaluate(() => showPage("perf")); await p.waitForTimeout(150);
+    check(`${lang}: read-only notice on Performance`, await p.isVisible("#page-perf .ro-notice"));
+    check(`${lang}: no polling rate over Bluetooth`, !(await p.isVisible("#poll-card")));
+    check(`${lang}: DPI stays read-only over Bluetooth`, await p.evaluate(() => getComputedStyle(document.querySelector("#page-perf [data-feat=dpi_stages] input, #page-perf [data-feat=dpi_stages] button")).pointerEvents === "none"));
+    await shot(p, `${lang}-ble-perf`);
+    // the sleep timer can be changed; the low-battery level is left alone
+    await p.evaluate(() => showPage("power")); await p.waitForTimeout(150);
+    check(`${lang}: sleep timer writable over Bluetooth`, await p.evaluate(() => getComputedStyle($("#idle")).pointerEvents !== "none" && getComputedStyle($("#btn-power")).pointerEvents !== "none"));
+    await p.evaluate(() => { $("#idle").value = 6; }); await p.click("#btn-power"); await p.waitForTimeout(200);
+    check(`${lang}: power over Bluetooth writes only the sleep timer`, JSON.stringify(await p.evaluate(() => window.__ST__.power)) === "[360,0]", JSON.stringify(await p.evaluate(() => window.__ST__.power)));
+    await shot(p, `${lang}-ble-power`);
+    // buttons: profiles and slots over Bluetooth, without creating or deleting slots
+    await p.evaluate(() => showPage("buttons")); await p.waitForTimeout(200);
+    check(`${lang}: profile box over Bluetooth`, await p.isVisible("#prof-box"));
+    await p.click("#btn-onboard"); await p.waitForTimeout(150);
+    check(`${lang}: no slot create/delete over Bluetooth`, (await p.$$(".onb .slot.missing")).length === 3 && !(await p.$(".onb .slot button.small")) && !(await p.$(".onb .slot button.icon")));
+    await p.keyboard.press("Escape"); await p.waitForTimeout(100);
+    check(`${lang}: Bluetooth without JavaScript errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  // Linux: an access rule of an older version is offered for update once; Settings shows its state
+  {
+    const { p, errors } = await open(browser, "lang=ru&os=linux&udevold");
+    await p.waitForSelector("#modal:not(.hidden)", { timeout: 5000 });
+    check("outdated udev rule: update offered", (await p.textContent("#modal")).includes("Обновить правило доступа"));
+    await p.click('#modal:not(.hidden) button:has-text("Обновить")'); await p.waitForTimeout(300);
+    check("outdated udev rule: installed", await p.evaluate(() => !!window.__ST__.udevInstalled));
+    await p.evaluate(() => showPage("settings")); await p.waitForTimeout(200);
+    check("Settings: udev card on Linux, up to date", await p.isVisible("#udev-card") && (await p.textContent("#udev-state")).includes("актуальное"));
+    await shot(p, "ru-udev-card");
+    check("udev without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  {
+    const { p } = await open(browser, "lang=en");
+    await p.evaluate(() => showPage("settings")); await p.waitForTimeout(200);
+    check("Settings: no udev card on Windows", !(await p.isVisible("#udev-card")));
+    await p.context().close();
+  }
+  // on-board slots: create a missing one; the list of all buttons beside the picture (Settings)
+  {
+    const { p, errors } = await open(browser, "lang=ru&slots2");
+    await p.click("#btn-onboard"); await p.waitForTimeout(150);
+    check("missing slots offer Create", (await p.$$(".onb .slot.missing")).length === 3);
+    await shot(p, "ru-onboard-missing");
+    await p.evaluate(() => { window.__realConfirm = confirmBox; window.confirmBox = async () => true; });
+    await p.click(".onb .slot.missing button >> nth=2"); await p.waitForTimeout(300);
+    check("slot 5 created", await p.evaluate(() => S.conn.profiles.includes(5)) && (await p.$$(".onb .slot.missing")).length === 2);
+    await p.click(".onb .slot:not(.missing) button.icon >> nth=-1"); await p.waitForTimeout(300);
+    await p.evaluate(() => { window.confirmBox = window.__realConfirm; });
+    check("slot 5 deleted", await p.evaluate(() => !S.conn.profiles.includes(5)));
+    await p.keyboard.press("Escape");
+    await p.click('#tabs button[data-tab="settings"]'); await p.waitForTimeout(100);
+    await p.check("#set-side-list"); await p.waitForTimeout(100);
+    await p.evaluate(() => showPage("buttons")); await p.waitForTimeout(100);
+    await p.click("#btn-view"); await p.waitForTimeout(150);
+    check("all buttons beside the picture", await p.isVisible("#cust-side .side-item") && await p.isVisible("#fig"));
+    check("no layers icon, no ▶ in the write button", !(await p.$("#prof-box svg.pi")) && !/▶/.test(await p.textContent("#btn-write")));
+    await shot(p, "ru-side-list");
+    await p.selectOption("#cust-side select", "plate"); await p.waitForTimeout(100);
+    check("side list filter: side plate", (await p.$$("#cust-side .side-item")).length === 12);
+    await p.click('button.plate[data-view="12"]'); await p.waitForTimeout(150);
+    check("side plate view draws the keypad (with the list open)", (await p.$$("#fig .side-key-n")).length === 12 && await p.isVisible("#cust-side .side-item"));
+    await p.click("#btn-view"); await p.waitForTimeout(100);
+    await p.click('button.plate[data-view="6"]'); await p.waitForTimeout(150);
+    check("side plate view draws the keypad (list closed)", (await p.$$("#fig .side-key-n")).length === 6 && !(await p.isVisible("#cust-side .side-item")));
+    check("slots and list without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  // optional updates (only the fourth number changes): off by default, shown once turned on
+  {
+    const { p, errors } = await open(browser, "lang=ru");
+    await p.route("https://api.github.com/**", (r) => r.fulfill({ contentType: "application/json",
+      body: JSON.stringify({ tag_name: "v0.8.1.2", html_url: "https://github.com/aspidovss/open-rzr/releases/tag/v0.8.1.2", draft: false, prerelease: false }) }));
+    await p.click('#tabs button[data-tab="settings"]'); await p.waitForTimeout(100);
+    check("optional updates off by default", !(await p.isChecked("#set-updates-optional")));
+    await p.click("#btn-update-check"); await p.waitForTimeout(400);
+    check("optional update not offered", /0\.8\.1\.2/.test(await p.textContent("#update-state")) && !(await p.isVisible("#update-banner")), await p.textContent("#update-state"));
+    await p.check("#set-updates-optional"); await p.waitForTimeout(100);
+    await p.click("#btn-update-check"); await p.waitForTimeout(400);
+    check("optional update offered when turned on", await p.isVisible("#update-banner"));
+    check("version compare: four numbers", await p.evaluate(() => newerVersion("0.8.2", "0.8.1.9") && !newerVersion("0.8.1", "0.8.1.0") && optionalOnly("v0.8.1.3", "0.8.1.1") && !optionalOnly("0.9.0.0", "0.8.1.1")));
+    await shot(p, "ru-updates-optional");
+    check("optional updates without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
     await p.context().close();
   }
   // declining the agreement closes the program

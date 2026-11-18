@@ -11,6 +11,8 @@ pub(crate) struct ProfileMeta {
     pub(crate) slots: Vec<u8>,
     /// None: in no slot; Some(true): every slot holds exactly this version; Some(false): changed since
     pub(crate) written: Option<bool>,
+    /// some buttons are run by open-rzr
+    pub(crate) software: bool,
 }
 
 #[derive(Serialize)]
@@ -64,7 +66,9 @@ pub(crate) fn slots_of(st: &AppState, serial: &str) -> Vec<Option<String>> {
 /// Where changes of profile `id` go: its slot when "write changes at once" is on, else the
 /// temporary layer (applies at once, kept in RAM) until "Write to mouse".
 pub(crate) fn target_slot(st: &AppState, serial: &str, id: &str) -> u8 {
-    if !lock(&st.store).autowrite {
+    // over Bluetooth there is no temporary layer: changes go to the profile's slot at once
+    let ble = lock(&st.mouse).as_ref().is_some_and(|m| m.ble);
+    if !ble && !lock(&st.store).autowrite {
         return TEMPORARY;
     }
     slots_of(st, serial).iter().position(|s| s.as_deref() == Some(id)).map(|i| i as u8 + 1).unwrap_or(TEMPORARY)
@@ -101,7 +105,7 @@ pub(crate) fn profiles_info(st: &AppState) -> ProfilesInfo {
                 slots.iter().enumerate().filter(|(_, s)| s.as_deref() == Some(p.id.as_str())).map(|(i, _)| i as u8 + 1).collect();
             let fp = fingerprint(&p);
             let written = (!mine.is_empty()).then(|| mine.iter().all(|n| written[*n as usize - 1].as_deref() == Some(fp.as_str())));
-            ProfileMeta { slots: mine, written, id: p.id, name: p.name, links: p.links }
+            ProfileMeta { slots: mine, written, software: p.software, id: p.id, name: p.name, links: p.links }
         })
         .collect();
     let flash = lock(&st.mouse).as_mut().filter(|m| m.has(feat::MACROS)).and_then(|m| m.flash_usage().ok());
@@ -230,13 +234,86 @@ pub(crate) async fn profile_set_button(st: State<'_, AppState>, id: String, butt
             p.macros.insert(action.macro_id.to_string(), steps);
         }
     }
+    let was_soft = !hypershift && p.soft.contains_key(&openrzr::profile::key(button));
     library::save(&p)?;
+    if was_soft {
+        // the button is no longer run by the program
+        crate::commands::macro_cmds::refresh_program_table(&st);
+    }
     if slot == TEMPORARY {
         *lock(&st.temp_layer) = Some(p);
     } else {
         mark_written(&st, slot, Some(&p));
     }
     Ok(back)
+}
+
+/// Software profile: open-rzr runs button `button` itself. In the mouse the button sends a
+/// trigger key (F13–F24, written once); later changes of `actions` need no write to the mouse,
+/// so they work over Bluetooth too.
+#[tauri::command]
+pub(crate) async fn profile_set_soft(st: State<'_, AppState>, id: String, button: u8, actions: Vec<SoftAction>) -> R<Action> {
+    let _op = lock(&st.profile_op);
+    let mut p = library::load(&id)?;
+    if !p.software {
+        return Err("[invalid] program actions on a button need a software profile".into());
+    }
+    let actions: Vec<SoftAction> = actions.into_iter().filter(|a| !(a.kind == "type" && a.text.is_empty())).collect();
+    if actions.iter().all(|a| !a.on) {
+        return Err("[invalid] add at least one action".into());
+    }
+    let k = openrzr::profile::key(button);
+    let own = p.active_soft().into_iter().find(|(b, _)| *b == button).map(|(_, sb)| sb.trigger);
+    let trigger = match own {
+        Some(t) => t,
+        None => {
+            let used = crate::commands::macro_cmds::used_triggers(&lock(&st.store));
+            openrzr::macro_doc::free_trigger(&used)
+                .ok_or("[triggers|] all trigger keys F13–F24 are taken by macros and other software buttons")?
+        }
+    };
+    let want = Action::keyboard(0, trigger);
+    log_info!(
+        "ui",
+        "\"{}\" software button 0x{button:02x} ({}): {}",
+        p.name,
+        program_actions::trigger_name(trigger),
+        actions.iter().map(|a| a.describe()).collect::<Vec<_>>().join(", ")
+    );
+    if p.button(button).map(|b| b.normal != want).unwrap_or(true) {
+        // first time: the button must send its trigger key — written to the mouse
+        let slot = target_slot(&st, &serial_of(&st), &id);
+        ensure_temporary(&st, &p, slot)?;
+        with_mouse(&st, "bind button to its trigger key", |m| m.set_profile_button(&mut p, slot, button, false, &want))?;
+        p.set(button, false, want.clone());
+        if slot == TEMPORARY {
+            *lock(&st.temp_layer) = Some(p.clone());
+        } else {
+            mark_written(&st, slot, Some(&p));
+        }
+    }
+    p.soft.insert(k, openrzr::profile::SoftButton { trigger, actions });
+    library::save(&p)?;
+    crate::commands::macro_cmds::refresh_program_table(&st);
+    Ok(want)
+}
+
+/// Mark a profile as software (some buttons run by open-rzr) or as an ordinary one.
+#[tauri::command]
+pub(crate) async fn profile_set_software(st: State<'_, AppState>, id: String, on: bool) -> R<Profile> {
+    let _op = lock(&st.profile_op);
+    let mut p = library::load(&id)?;
+    if !on && !p.active_soft().is_empty() {
+        return Err("[invalid] give the buttons run by the program ordinary bindings first".into());
+    }
+    log_info!("ui", "profile \"{}\": software {on}", p.name);
+    p.software = on;
+    if !on {
+        p.soft.clear();
+    }
+    library::save(&p)?;
+    crate::commands::macro_cmds::refresh_program_table(&st);
+    Ok(p)
 }
 
 /// Hypershift layer: "copy" (standard → Hypershift) or "clear".
@@ -381,6 +458,8 @@ pub(crate) async fn profile_delete(st: State<'_, AppState>, id: String) -> R<()>
         s.autoswitch.fallback.clear();
     }
     s.save();
+    drop(s);
+    crate::commands::macro_cmds::refresh_program_table(&st);
     Ok(())
 }
 
@@ -396,6 +475,7 @@ pub(crate) async fn profile_reset(st: State<'_, AppState>, id: String) -> R<Prof
         m.write_profile(&p, slot, None).map(|_| ())
     })?;
     library::save(&p)?;
+    crate::commands::macro_cmds::refresh_program_table(&st);
     if slot != TEMPORARY {
         mark_written(&st, slot, Some(&p));
     }
@@ -416,6 +496,7 @@ pub(crate) async fn profile_restore(st: State<'_, AppState>, profile: Profile) -
     let n = with_mouse(&st, "undo", |m| m.write_profile(&p, slot, Some(&cur)))?;
     log_info!("ui", "undo: {n} records written back");
     library::save(&p)?;
+    crate::commands::macro_cmds::refresh_program_table(&st);
     if slot == TEMPORARY {
         *lock(&st.temp_layer) = Some(p.clone());
     } else {
@@ -435,6 +516,8 @@ pub(crate) async fn profile_reload(st: State<'_, AppState>, id: String) -> R<Pro
     p.id = old.id;
     p.links = old.links;
     p.lighting = old.lighting;
+    p.software = old.software;
+    p.soft = old.soft;
     if p.dpi_stages.is_none() {
         p.dpi_stages = old.dpi_stages;
     }
@@ -488,6 +571,31 @@ pub(crate) async fn slot_assign(st: State<'_, AppState>, slot: u8, id: Option<St
         s.save();
     }
     Ok(profiles_info(&st))
+}
+
+/// Create on-board slot `slot` in the mouse (it then holds the default bindings until a profile
+/// is written there). Returns the slots the mouse has now.
+#[tauri::command]
+pub(crate) async fn slot_create(st: State<'_, AppState>, slot: u8) -> R<Vec<u8>> {
+    let _op = lock(&st.profile_op);
+    log_info!("ui", "create on-board slot {slot}");
+    with_mouse(&st, "create slot", |m| m.create_profile(slot))
+}
+
+/// Delete on-board slot `slot` from the mouse; its library profile stays in the library.
+#[tauri::command]
+pub(crate) async fn slot_delete(st: State<'_, AppState>, slot: u8) -> R<Vec<u8>> {
+    let _op = lock(&st.profile_op);
+    log_info!("ui", "delete on-board slot {slot}");
+    let list = with_mouse(&st, "delete slot", |m| m.delete_profile(slot))?;
+    mark_written(&st, slot, None);
+    let serial = serial_of(&st);
+    let mut s = lock(&st.store);
+    let v = s.slots.entry(serial).or_default();
+    v.resize(5, None);
+    v[slot as usize - 1] = None;
+    s.save();
+    Ok(list)
 }
 
 /// First id of the service macros open-rzr writes itself (turbo for media keys).

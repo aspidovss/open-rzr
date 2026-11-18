@@ -45,7 +45,7 @@ pub(crate) async fn ui_log(level: String, msg: String) -> R<()> {
 #[tauri::command]
 pub(crate) async fn save_report(st: State<'_, AppState>) -> R<String> {
     let mut rep = String::new();
-    rep += &format!("open-rzr {} / {} {}\n", openrzr::VERSION, std::env::consts::OS, std::env::consts::ARCH);
+    rep += &format!("open-rzr {} / {} {}\n", openrzr::version(), std::env::consts::OS, std::env::consts::ARCH);
     rep += &format!("time (UTC): {}\n\nRazer HID devices:\n", logs::timestamp());
     for d in openrzr::transport::enumerate(st.mock) {
         rep += &format!("  {} {}\n", d.label(), d.path);
@@ -132,6 +132,41 @@ pub(crate) async fn wireless_debug(probe: String) -> R<openrzr::wireless::Report
 pub(crate) async fn wireless_gatt(request: String, listen_ms: u32) -> R<openrzr::wireless::Exchange> {
     log_info!("ui", "wireless GATT exchange (request: {})", if request.trim().is_empty() { "listen only" } else { request.trim() });
     Ok(tauri::async_runtime::spawn_blocking(move || openrzr::wireless::gatt_exchange(&request, listen_ms)).await.unwrap_or_default())
+}
+
+/// Diagnostics → Wireless → Razer commands: "get" commands over Bluetooth. `classes`, `cmds`:
+/// hex lists with ranges ("00-1f", "80-9f"); `subs`: pairs ("00 00, 01 00, 00 01").
+#[tauri::command]
+pub(crate) async fn ble_get(classes: String, cmds: String, subs: String) -> R<Vec<openrzr::wireless::BleResult>> {
+    let classes = openrzr::wireless::parse_byte_list(&classes).map_err(|e| format!("[invalid] class: {e}"))?;
+    let cmds = openrzr::wireless::parse_byte_list(&cmds).map_err(|e| format!("[invalid] command: {e}"))?;
+    let mut sub_list = Vec::new();
+    for part in subs.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        match openrzr::wireless::parse_hex(part).map_err(|e| format!("[invalid] sub: {e}"))?.as_slice() {
+            [a, b] => sub_list.push([*a, *b]),
+            _ => return Err(format!("[invalid] sub “{part}”: two bytes, like 00 01")),
+        }
+    }
+    if sub_list.is_empty() {
+        sub_list.push([0, 0]);
+    }
+    log_info!("ui", "BT get: classes {classes:02x?} commands {cmds:02x?} subs {sub_list:02x?}");
+    tauri::async_runtime::spawn_blocking(move || openrzr::wireless::ble_get(&classes, &cmds, &sub_list))
+        .await
+        .map_err(|e| format!("[io] {e}"))?
+        .map_err(|e| format!("[io] {e}"))
+}
+
+/// Diagnostics → Wireless → write self-test over Bluetooth: one step ("sleep", "button_same",
+/// "button_change", "button_restore"); `way` = the way of writing found by "button_same".
+#[tauri::command]
+pub(crate) async fn ble_selftest(step: String, way: Option<u8>, value: Option<String>) -> R<openrzr::wireless::TestReport> {
+    log_info!("ui", "BT write self-test: {step} (way {way:?}, {value:?})");
+    let value = value.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || openrzr::wireless::ble_selftest(&step, way, &value))
+        .await
+        .map_err(|e| format!("[io] {e}"))?
+        .map_err(|e| format!("[io] {e}"))
 }
 
 #[derive(Serialize)]

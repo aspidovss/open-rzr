@@ -1,5 +1,7 @@
 # open-rzr: access to Razer mouse HID control for the logged-in user;
 # input lines: read the mouse's own key events (F13-F24 triggers of macro program actions)
+# uinput: send keys, mouse buttons and media keys of program actions (software profile)
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
 # Razer Orochi 2011
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0013", TAG+="uaccess"
 KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0013", TAG+="uaccess"
@@ -206,6 +208,7 @@ KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct
 KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0091", TAG+="uaccess"
 # Razer Naga Pro (Bluetooth)
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0005:1532:0092.*", TAG+="uaccess"
+KERNEL=="event*", SUBSYSTEM=="input", KERNELS=="0005:1532:0092.*", TAG+="uaccess"
 # Razer Orochi V2 (Receiver)
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0094", TAG+="uaccess"
 KERNEL=="event*", SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0094", TAG+="uaccess"

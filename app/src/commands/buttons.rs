@@ -7,6 +7,18 @@ pub(crate) async fn side_plate(st: State<'_, AppState>) -> R<Option<u8>> {
     with_mouse(&st, "side plate", |m| m.side_plate())
 }
 
+/// The on-board profile slot the mouse uses now (`None` when it cannot tell).
+#[tauri::command]
+pub(crate) async fn active_slot(st: State<'_, AppState>) -> R<Option<u8>> {
+    let a = with_mouse(&st, "active profile", |m| Ok(m.active_profile()))?;
+    let mut last = lock(&st.active_slot);
+    if *last != a {
+        log_info!("device", "active on-board profile: {}", a.map(|n| n.to_string()).unwrap_or_else(|| "unknown".into()));
+        *last = a;
+    }
+    Ok(a)
+}
+
 #[tauri::command]
 pub(crate) async fn set_plate_choice(st: State<'_, AppState>, choice: String) -> R<()> {
     let serial = lock(&st.serial).clone();

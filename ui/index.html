@@ -29,11 +29,11 @@
     <!-- row 2: profile + device sub-tabs -->
     <div id="devbar">
       <div class="prof needs-mouse" id="prof-box">
-        <svg class="pi" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 8.5 10 6l4.5 2.5L10 11Zm0 3L10 14l4.5-2.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
         <select id="prof-select"></select>
         <button id="btn-prof-menu" class="icon" data-i18n-title="prof.menu">•••</button>
         <button id="btn-write" class="write-btn"><span id="write-state"></span><span id="write-text"></span></button>
         <button id="btn-onboard" class="icon" data-i18n-title="onb.title"><svg viewBox="0 0 16 16" width="15" height="15"><path d="M4 2h6l3 3v9H4Z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 2v3M8 2v3M10 2v3" stroke="currentColor" stroke-width="1.1"/></svg></button>
+        <span id="active-chip" class="chip hidden"></span>
         <span id="auto-chip" class="chip hidden"></span>
       </div>
       <nav id="nav">
@@ -91,12 +91,19 @@
             <button id="btn-batt" data-i18n="device.refresh"></button>
           </div>
         </div>
+        <div class="card needs-mouse hidden" id="ble-bind-card">
+          <div class="card-title row"><span data-i18n="ble.bind_title"></span><span class="grow"></span>
+            <button id="btn-ble-bind" data-i18n="device.refresh"></button></div>
+          <div class="muted small" data-i18n="ble.bind_note"></div>
+          <table class="list small" id="ble-bind"></table>
+        </div>
       </div>
 
       <!-- ============================================================ performance -->
       <div class="page hidden" id="page-perf">
         <h1><span data-i18n="perf.title"></span> <button class="help-link" data-help="performance" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="perf.sub"></p>
+        <div class="notice ro-notice" data-i18n="ble.ro_page"></div>
         <div class="card needs-mouse" id="stages-card" data-feat="dpi_stages">
           <div class="card-title row"><span data-i18n="perf.stages"></span><span class="grow"></span>
             <span class="muted small" id="dpi-target"></span></div>
@@ -117,6 +124,7 @@
 
       <!-- ============================================================ buttons -->
       <div class="page hidden" id="page-buttons">
+        <aside id="cust-side" class="needs-mouse hidden"></aside>
         <div class="cust needs-mouse" id="cust-figure">
           <div id="fig"></div>
           <div id="sidepad" class="hidden"><div id="sidepad-title"></div><div class="pad" id="pad"></div></div>
@@ -234,6 +242,7 @@
       <div class="page hidden" id="page-lighting">
         <h1><span data-i18n="light.title"></span> <button class="help-link" data-help="performance#lighting" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="light.sub"></p>
+        <div class="notice ro-notice" data-i18n="ble.ro_page"></div>
         <div id="poly-notice" class="notice hidden">
           <div data-i18n="poly.notice"></div>
           <div class="row" style="margin-top:8px"><span class="grow"></span>
@@ -253,6 +262,7 @@
       <div class="page hidden" id="page-power">
         <h1><span data-i18n="power.title"></span> <button class="help-link" data-help="performance#power" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="power.sub"></p>
+        <div class="notice ro-notice" data-i18n="ble.ro_power"></div>
         <div class="card needs-mouse" data-feat="idle">
           <div class="card-title" data-i18n="power.sleep"></div>
           <div class="row"><label data-i18n="power.sleep_label"></label>
@@ -270,26 +280,29 @@
       <div class="page hidden" id="page-diag">
         <h1><span data-i18n="diag.title"></span> <button class="help-link" data-help="troubleshooting" data-i18n-title="help.open">?</button></h1>
         <p class="sub" data-i18n="diag.sub"></p>
-        <div class="row wrap toolbar">
-          <label data-i18n="diag.show"></label>
-          <select id="log-filter"><option value="" data-i18n="diag.all"></option><option value=" ui ">ui</option><option value=" device ">device</option><option value=" usb ">usb</option><option value=" app ">app</option><option value="ERROR" data-i18n="diag.errors"></option></select>
-          <label class="check"><input type="checkbox" id="log-follow" checked> <span data-i18n="diag.follow"></span></label>
-          <span class="grow"></span>
-          <button id="btn-hidlist" data-i18n="diag.hid"></button>
-          <button id="btn-drivers" data-i18n="diag.drivers"></button>
-          <button id="btn-devfiles" data-i18n="df.title"></button>
-          <button id="btn-wireless" data-i18n="wl.title"></button>
-          <button id="btn-logdir" data-i18n="diag.logdir"></button>
-          <button class="primary" id="btn-report" data-i18n="diag.report"></button>
+        <div class="seg diag-views" id="diag-views"><button data-v="log" class="on" data-i18n="diag.v_log"></button><button data-v="wl" id="btn-wireless" data-i18n="wl.title"></button></div>
+        <div id="diag-log-view">
+          <div class="row wrap toolbar">
+            <label data-i18n="diag.show"></label>
+            <select id="log-filter"><option value="" data-i18n="diag.all"></option><option value=" ui ">ui</option><option value=" device ">device</option><option value=" usb ">usb</option><option value=" app ">app</option><option value="ERROR" data-i18n="diag.errors"></option></select>
+            <label class="check"><input type="checkbox" id="log-follow" checked> <span data-i18n="diag.follow"></span></label>
+            <span class="grow"></span>
+            <button id="btn-hidlist" data-i18n="diag.hid"></button>
+            <button id="btn-drivers" data-i18n="diag.drivers"></button>
+            <button id="btn-devfiles" data-i18n="df.title"></button>
+            <button id="btn-logdir" data-i18n="diag.logdir"></button>
+            <button class="primary" id="btn-report" data-i18n="diag.report"></button>
+          </div>
+          <pre id="log"></pre>
+          <div class="row">
+            <input id="raw-cmd" class="mono" data-i18n-ph="diag.cmd_ph" style="width:190px">
+            <input id="raw-args" class="mono grow" data-i18n-ph="diag.args_ph">
+            <label>size</label><input id="raw-size" type="text" class="num mono" maxlength="4" placeholder="auto" data-i18n-title="diag.raw_size_tip" spellcheck="false">
+            <button id="btn-raw" data-i18n="diag.send"></button>
+          </div>
+          <div id="log-path" class="muted small"></div>
         </div>
-        <pre id="log"></pre>
-        <div class="row">
-          <input id="raw-cmd" class="mono" data-i18n-ph="diag.cmd_ph" style="width:190px">
-          <input id="raw-args" class="mono grow" data-i18n-ph="diag.args_ph">
-          <label>size</label><input id="raw-size" type="text" class="num mono" maxlength="4" placeholder="auto" data-i18n-title="diag.raw_size_tip" spellcheck="false">
-          <button id="btn-raw" data-i18n="diag.send"></button>
-        </div>
-        <div id="log-path" class="muted small"></div>
+        <div id="diag-wl-view" class="hidden"></div>
       </div>
 
       <!-- ============================================================ help -->
@@ -322,6 +335,8 @@
               <span class="sprev classic"><i class="s"></i><i class="t"></i><i class="b"></i></span>
               <span><b data-i18n="set.style_classic"></b><br><span class="muted small" data-i18n="set.style_classic_text"></span></span></label>
           </div>
+          <label class="check"><input type="checkbox" id="set-side-list"> <span data-i18n="set.side_list"></span></label>
+          <div class="muted small" data-i18n="set.side_list_note"></div>
         </div>
         <div class="card">
           <div class="card-title" data-i18n="set.startup"></div>
@@ -342,6 +357,8 @@
           <div class="card-title" data-i18n="upd.title"></div>
           <label class="check"><input type="checkbox" id="set-updates"> <span data-i18n="upd.set"></span></label>
           <div class="muted small" data-i18n="upd.note"></div>
+          <label class="check"><input type="checkbox" id="set-updates-optional"> <span data-i18n="upd.optional"></span></label>
+          <div class="muted small" data-i18n="upd.optional_note"></div>
           <div class="row"><button id="btn-update-check" data-i18n="upd.check_now"></button><span id="update-state" class="muted small"></span></div>
           <div class="row"><button id="btn-eula" class="link" data-i18n="eula.show"></button></div>
         </div>
@@ -359,6 +376,11 @@
             <button id="btn-rz-refresh" data-i18n="or.refresh"></button>
             <button id="btn-rz-start" data-i18n="rz.start"></button>
             <button class="primary" id="btn-rz-stop" data-i18n="rz.stop"></button></div>
+        </div>
+        <div class="card hidden" id="udev-card">
+          <div class="card-title" data-i18n="udev.card"></div>
+          <div class="muted small" data-i18n="udev.card_note"></div>
+          <div class="row"><span id="udev-state" class="grow"></span><button id="btn-udev" data-i18n="udev.install"></button></div>
         </div>
         <div class="card hidden" id="or-card">
           <div class="card-title" data-i18n="or.title"></div>

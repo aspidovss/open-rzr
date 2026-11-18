@@ -10,6 +10,8 @@ The buttons under the drawing switch the view: **top** and the three **side plat
 
 **▤ list view** — all buttons as a table, with hidden ones too (*Show all*). **Find by pressing…** — press the mouse button and the page shows which one it is.
 
+**All buttons on the side** (as in Synapse): turn on *Settings → Window style → “Customize: the list button opens all buttons beside the picture”*, and the same button opens a list of all buttons with their bindings on the left of the drawing, with a filter (all / top / side plate). Click a row to edit its binding.
+
 ## Binding types
 
 | Type | What it does |
@@ -48,3 +50,16 @@ Hypershift is a **second layer of bindings**: while a button bound to *Hypershif
 Notices under the drawing warn when the profile has Hypershift bindings but no Hypershift button (they never work), or a Hypershift button with an empty layer.
 
 Macros and F13–F24 work in either layer.
+
+## Software profile (buttons run by open-rzr)
+
+**Profile menu → Software profile in slot 5…** makes a copy of the current profile, marks it as *software* and writes it to on-board slot 5 — the other slots stay ordinary. Switch to it with the profile button of the mouse.
+
+In a software profile a button can be bound to **⚡ Run by open-rzr**: the mouse sends a trigger key (F13–F24, written once), and open-rzr performs a list of actions while it runs:
+
+| Action | |
+|---|---|
+| Key, mouse button, media key | alone in the list it is **held as long as the button is held** (also for games); in a longer list it is pressed and released |
+| Type text, Launch, Run command, Pause | done one after another on a press |
+
+Changing the actions later writes nothing to the mouse, and they run over Bluetooth too; over Bluetooth a button can also be made a program button (its F-key is written into the slot), as long as the profile is in a slot of the mouse. The 12 trigger keys are shared with the program actions of macros. Without open-rzr running the button only sends its F-key. Windows: keys and mouse buttons go through `SendInput` — windows of programs running as administrator do not take them unless open-rzr runs as administrator too, and some games with anti-cheat ignore such input. Linux: keys, mouse buttons and media keys go through a virtual input device (`/dev/uinput`) — install the udev rule (**Settings → Linux access**) and log in again; text, launch and commands work too.

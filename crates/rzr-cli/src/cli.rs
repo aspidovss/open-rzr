@@ -301,7 +301,7 @@ fn e2s(e: Error) -> String {
 fn run_without_mouse(cli: &Cli) -> Result<bool, String> {
     match &cli.cmd {
         Cmd::Version => {
-            println!("open-rzr {}", openrzr::VERSION);
+            println!("open-rzr {}", openrzr::version());
             println!(
                 "Device database: own modules + OpenRazer {} ({} models)",
                 openrzr::devices::openrazer_db::REVISION,

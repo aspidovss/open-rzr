@@ -208,6 +208,14 @@ pub mod cmd {
     pub const GET_DPI_STAGES: u16 = 0x0486;
     pub const GET_PROFILE_COUNT: u16 = 0x0580;
     pub const GET_PROFILE_LIST: u16 = 0x0581;
+    /// create on-board profile [id] (Synapse sends it before writing a new slot; OpenRazer wiki)
+    pub const CREATE_PROFILE: u16 = 0x0502;
+    /// delete on-board profile [id]
+    pub const DELETE_PROFILE: u16 = 0x0503;
+    /// the profile the mouse uses now (Naga Pro: answers 02 on profile 2)
+    pub const GET_ACTIVE_PROFILE: u16 = 0x0584;
+    /// how many on-board profiles the mouse can hold (Naga Pro: 5)
+    pub const GET_PROFILE_MAX: u16 = 0x058A;
     pub const GET_MACRO_COUNT: u16 = 0x0680;
     pub const GET_MACRO_LIST: u16 = 0x068B;
     pub const DELETE_MACRO: u16 = 0x0603;

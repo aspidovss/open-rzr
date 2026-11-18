@@ -92,7 +92,12 @@ impl RazerMouse {
             }
         }
         if let Some(st) = &p.dpi_stages {
-            if self.has(feat::DPI_STAGES) && !st.stages.is_empty() && previous.map(|q| q.dpi_stages.as_ref() != Some(st)).unwrap_or(true) {
+            if self.ble {
+                // only button bindings are written over Bluetooth so far
+                if previous.map(|q| q.dpi_stages.as_ref() != Some(st)).unwrap_or(true) {
+                    log_info!("device", "write_profile: DPI stages not written over Bluetooth");
+                }
+            } else if self.has(feat::DPI_STAGES) && !st.stages.is_empty() && previous.map(|q| q.dpi_stages.as_ref() != Some(st)).unwrap_or(true) {
                 if slot == TEMPORARY {
                     // no stage storage for the temporary layer: set the active stage's DPI
                     if let Some(&(x, y)) = st.stages.get(st.active.saturating_sub(1) as usize) {
@@ -110,6 +115,13 @@ impl RazerMouse {
 
     /// Global settings of a profile that the mouse does not keep per slot: polling rate and lighting.
     pub fn apply_profile_globals(&mut self, p: &Profile) -> Result<()> {
+        if self.ble {
+            // over Bluetooth polling rate and lighting can be read, not changed (yet)
+            if p.polling.is_some() || !p.lighting.is_empty() {
+                log_info!("device", "profile globals (polling rate, lighting) not written over Bluetooth");
+            }
+            return Ok(());
+        }
         if let (Some(hz), true) = (p.polling, self.has(feat::POLLING)) {
             self.set_polling_rate(hz)?;
         }

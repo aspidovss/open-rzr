@@ -18,7 +18,8 @@ pub struct ButtonInfo {
 impl RazerMouse {
     /// On-board profiles (always at least [1]).
     pub fn list_profiles(&mut self) -> Vec<u8> {
-        if !self.has(feat::PROFILES) {
+        // over Bluetooth the list is read too (03 80), though slots cannot be created there
+        if !self.has(feat::PROFILES) && !self.ble {
             return vec![1];
         }
         let r = (|| -> Result<Vec<u8>> {
@@ -30,6 +31,64 @@ impl RazerMouse {
             Ok(v) if !v.is_empty() => v,
             _ => vec![1],
         }
+    }
+
+    /// Create on-board profile `id` (2..=5; 1 always exists). Checked by reading the list back:
+    /// if the mouse switched to `id` instead (an unknown meaning of the command on some mice),
+    /// it is switched back and an error returned.
+    pub fn create_profile(&mut self, id: u8) -> Result<Vec<u8>> {
+        self.need(feat::PROFILES)?;
+        if !(2..=5).contains(&id) {
+            return Err(Error::Unsupported(format!("profile {id}: only 2..5 can be created")));
+        }
+        let before = self.list_profiles();
+        if before.contains(&id) {
+            return Ok(before);
+        }
+        let active = self.active_profile();
+        log_info!("device", "create on-board profile {id} (now {before:?}, active {active:?})");
+        self.req(cmd::CREATE_PROFILE, &[id], Some(1))?;
+        let after = self.list_profiles();
+        if after.contains(&id) {
+            log_info!("device", "on-board profile {id} created: {after:?}");
+            return Ok(after);
+        }
+        let now = self.active_profile();
+        if now == Some(id) && active != Some(id) {
+            if let Some(a) = active {
+                let _ = self.req(cmd::CREATE_PROFILE, &[a], Some(1));
+            }
+            log_warn!("device", "05 02 switched the mouse to profile {id} instead of creating it; switched back to {active:?}");
+            return Err(Error::Unsupported("this mouse switches profiles with this command instead of creating one (switched back)".into()));
+        }
+        log_warn!("device", "on-board profile {id} not created: the list is still {after:?}");
+        Err(Error::Unsupported(format!("the mouse did not create profile {id}")))
+    }
+
+    /// Delete on-board profile `id` (2..=5).
+    pub fn delete_profile(&mut self, id: u8) -> Result<Vec<u8>> {
+        self.need(feat::PROFILES)?;
+        if !(2..=5).contains(&id) {
+            return Err(Error::Unsupported(format!("profile {id} cannot be deleted")));
+        }
+        log_info!("device", "delete on-board profile {id}");
+        self.req(cmd::DELETE_PROFILE, &[id], Some(1))?;
+        let after = self.list_profiles();
+        if after.contains(&id) {
+            log_warn!("device", "on-board profile {id} still listed after delete: {after:?}");
+            return Err(Error::Unsupported(format!("the mouse did not delete profile {id}")));
+        }
+        Ok(after)
+    }
+
+    /// The on-board profile the mouse uses now (switched with its profile button); `None` when
+    /// the mouse cannot tell.
+    pub fn active_profile(&mut self) -> Option<u8> {
+        if !self.has(feat::PROFILES) && !self.ble {
+            return None;
+        }
+        let a = self.req(cmd::GET_ACTIVE_PROFILE, &[], Some(1)).ok()?;
+        (1..=5).contains(&a[0]).then_some(a[0])
     }
 
     pub fn get_button_raw(&mut self, id: u8, profile: u8, hypershift: bool) -> Result<[u8; 7]> {

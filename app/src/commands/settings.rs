@@ -15,6 +15,9 @@ pub(crate) struct Settings {
     /// update check on GitHub: null = not asked yet
     pub(crate) updates: Option<bool>,
     pub(crate) update_skip: String,
+    /// also optional updates (fourth number of the version)
+    pub(crate) updates_optional: bool,
+    pub(crate) side_list: bool,
 }
 
 #[tauri::command]
@@ -30,6 +33,8 @@ pub(crate) async fn get_settings(st: State<'_, AppState>) -> R<Settings> {
         ui_style: if s.ui_style.is_empty() { "synapse".into() } else { s.ui_style.clone() },
         updates: s.updates,
         update_skip: s.update_skip.clone(),
+        updates_optional: s.updates_optional,
+        side_list: s.side_list,
     })
 }
 
@@ -151,6 +156,26 @@ pub(crate) async fn set_updates(st: State<'_, AppState>, enabled: bool) -> R<()>
     log_info!("ui", "update check on GitHub: {}", if enabled { "on" } else { "off" });
     let mut s = lock(&st.store);
     s.updates = Some(enabled);
+    s.save();
+    Ok(())
+}
+
+/// Customize: the list of all buttons beside the picture (like Synapse) instead of in place of it.
+#[tauri::command]
+pub(crate) async fn set_side_list(st: State<'_, AppState>, enabled: bool) -> R<()> {
+    log_info!("ui", "list of all buttons beside the picture: {}", if enabled { "on" } else { "off" });
+    let mut s = lock(&st.store);
+    s.side_list = enabled;
+    s.save();
+    Ok(())
+}
+
+/// Optional updates (only the fourth number of the version changes: intermediate, device support).
+#[tauri::command]
+pub(crate) async fn set_updates_optional(st: State<'_, AppState>, enabled: bool) -> R<()> {
+    log_info!("ui", "optional updates: {}", if enabled { "on" } else { "off" });
+    let mut s = lock(&st.store);
+    s.updates_optional = enabled;
     s.save();
     Ok(())
 }

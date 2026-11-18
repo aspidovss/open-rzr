@@ -57,7 +57,7 @@ for (const f of rustFiles(path.join(root, "app", "src"))) {
 fs.writeFileSync(path.join(__dirname, "sigs.js"), "window.__SIGS__ = " + JSON.stringify(sigs) + ";\n");
 
 const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-const inject = `<script>const _q = new URLSearchParams(location.search); window.__LANG__ = _q.has("lang") ? _q.get("lang") : "ru"; window.__DB__ = _q.has("db") ? (_q.get("db") || true) : false; window.__ORD__ = _q.has("ord"); window.__RZ__ = _q.has("rz"); window.__OS__ = _q.get("os"); window.__STYLE__ = _q.get("style"); window.__POLY__ = _q.has("poly"); window.__FIRSTRUN__ = _q.has("firstrun"); window.__INSTALLED__ = _q.has("installed");</script>
+const inject = `<script>const _q = new URLSearchParams(location.search); window.__LANG__ = _q.has("lang") ? _q.get("lang") : "ru"; window.__DB__ = _q.has("db") ? (_q.get("db") || true) : false; window.__ORD__ = _q.has("ord"); window.__RZ__ = _q.has("rz"); window.__OS__ = _q.get("os"); window.__STYLE__ = _q.get("style"); window.__POLY__ = _q.has("poly"); window.__FIRSTRUN__ = _q.has("firstrun"); window.__INSTALLED__ = _q.has("installed"); window.__BLE__ = _q.has("ble"); window.__SLOTS2__ = _q.has("slots2"); window.__UDEVOLD__ = _q.has("udevold");</script>
 <script src="../tools/uitest/sigs.js"></script>
 <script src="../tools/uitest/devmock.js"></script>
 <script src="i18n/en.js"></script>`;
