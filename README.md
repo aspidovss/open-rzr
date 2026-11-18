@@ -62,7 +62,7 @@ Details: [Supported mice and Bluetooth](ui/docs/en/devices.md).
 
 ## Download and build
 
-Releases: the [Releases](../../releases) page (Windows zip and installer, Linux tar.gz, .deb, AppImage).
+Releases: the [Releases](../../releases) page (Windows zip and installer, Linux tar.gz, .deb, AppImage). What changed: [RELEASE_NOTES.en.md](RELEASE_NOTES.en.md).
 
 ```powershell
 # Windows (Rust + Visual Studio Build Tools)
@@ -85,7 +85,7 @@ Settings already written to the mouse stay in the mouse. If you kept the Razer s
 
 ### Versions
 
-Four numbers, for example **0.8.1.1**: *major* (changes the program as a whole) . *new features* . *fixes* . *optional* (intermediate updates, mostly support of particular devices). The update check tells about optional updates only when this is turned on in Settings (off by default). Cargo keeps the fourth number as build metadata (`0.8.1+1`); the installer and the file names show `0.8.1.1`.
+Four numbers, for example **0.8.1.5**: *major* (changes the program as a whole) . *new features* . *fixes* . *optional* (intermediate updates, mostly support of particular devices). The update check tells about optional updates only when this is turned on in Settings (off by default). Cargo keeps the fourth number as build metadata (`0.8.1+5`); the installer, the file names and the release tag (`v0.8.1.5`) show `0.8.1.5`. How a release is made: [Building and contributing](ui/docs/en/building.md#releasing).
 
 ## Project layout
 

@@ -30,7 +30,15 @@ Both scripts run the core tests, build `open-rzr`, `open-rzr-cli` and `orzr-cli`
 
 ## Automatic builds on GitHub
 
-The workflow is in `.github/workflows/build.yml` (a copy is kept in `packaging/ci/github-build.yml`). On every push GitHub builds both systems, runs the tests and clippy, and tests the window in a browser; a tag like `v0.5.0` creates a release with the installer, zip, .deb, AppImage and checksums.
+The workflow is in `.github/workflows/build.yml` (a copy is kept in `packaging/ci/github-build.yml`). On every push GitHub builds both systems, runs the tests and clippy, and tests the window in a browser.
+
+## Releasing
+
+1. Set the version in `Cargo.toml` and `app/tauri.conf.json`. Versions have four numbers — major . new features . fixes . optional; Cargo writes the fourth as build metadata: `0.8.1+5` is **0.8.1.5**, `0.9.0` is **0.9.0**.
+2. Add a section `## open-rzr 0.8.1.5` at the top of `RELEASE_NOTES.en.md` (English) and `RELEASE_NOTES.md` (Russian).
+3. Commit, then push a tag named after the version: `git tag v0.8.1.5 && git push origin main v0.8.1.5`.
+
+GitHub then builds everything and publishes the release **open-rzr 0.8.1.5** with the installer, zip, .deb, AppImage, tar.gz and checksums, marked as the latest one. Its text is made by `packaging/ci/release-notes.py` from both notes files: every section since the previous tag, English first, Russian folded below (`python3 packaging/ci/release-notes.py v0.8.1.5` shows it locally). A tag that does not match `Cargo.toml` stops the release: the update check of every installed copy asks GitHub for the latest release, so a mistyped tag such as `v1.8.1.1` would be offered to everyone as a new version.
 
 ## Window tests
 

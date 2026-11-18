@@ -5,9 +5,10 @@
 Without a rule, only root can talk to the mouse. On first start open-rzr offers to install `/etc/udev/rules.d/99-open-rzr.rules` (asks for your password once); `open-rzr-cli install-udev` does the same, and the `.deb` installs it itself. The rule gives the logged-in user access to:
 
 - the control interface (`hidraw`) of the Razer mice open-rzr knows, by cable, receiver and Bluetooth;
-- the mouse's own key events (`/dev/input/event*`) — for the F13–F24 triggers of macro program actions.
+- the mouse's own key events (`/dev/input/event*`, also over Bluetooth) — for the F13–F24 triggers of macro program actions and program buttons;
+- `/dev/uinput` — a virtual input device through which program buttons send keys, mouse buttons and media keys (held as long as the mouse button).
 
-Reconnect the mouse after installing the rule.
+Reconnect the mouse after installing the rule; for `/dev/uinput`, log out and in again. **Settings → Linux access (udev rule)** shows whether the rule is installed and up to date and installs or updates it. When the rule of an older version is installed, open-rzr offers to update it once after connecting the mouse.
 
 ## OpenRazer
 

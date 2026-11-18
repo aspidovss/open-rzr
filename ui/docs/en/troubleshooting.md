@@ -4,7 +4,7 @@
 
 1. **Razer Synapse or OpenRazer** is talking to the mouse — see the notice at the top; stop it ([Windows](windows.md), [Linux](linux.md)).
 2. **Linux:** the udev rule is missing — *Settings* offers to install it; reconnect the mouse afterwards.
-3. **Bluetooth:** settings may be unavailable over Bluetooth — connect by cable or receiver ([details](devices.md)).
+3. **Bluetooth:** over Bluetooth only button bindings and the sleep timer can be changed (Naga Pro, Windows); for the rest connect by cable or receiver ([details](devices.md#bluetooth)). *Diagnostics → Wireless → Write self-test* checks what your mouse accepts.
 4. **Diagnostics → All HID devices** shows what the system sees. **Diagnostics → Drivers** shows Razer drivers left by Synapse.
 5. Press **⟳** next to the device list.
 

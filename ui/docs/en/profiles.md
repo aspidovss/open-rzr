@@ -24,6 +24,8 @@ Only the changed bindings are written, which saves flash memory.
 
 **Settings → Profiles → Write changes straight into the profile's on-board slot** — every change goes into flash at once, without the button (the behaviour of older versions).
 
+**Over Bluetooth** there is no temporary layer: changes always go into the profile's slot at once, a profile that is not in a slot cannot be used, and slots cannot be created or deleted. See [Bluetooth](devices.md#bluetooth).
+
 ## The ••• menu
 
 - **Add** — with factory bindings, as a copy of the current profile, or read from a slot of the mouse.
