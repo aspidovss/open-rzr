@@ -234,3 +234,22 @@ fn probing_a_database_model() {
     n.probe();
     assert_eq!(n.experimental, 0);
 }
+
+#[test]
+fn write_to_a_missing_slot_is_refused() {
+    use openrzr::features::profiles::TEMPORARY;
+    let mut mock = openrzr::transport::mock::MockNagaPro::new();
+    mock.profiles = vec![1];
+    let mut m = RazerMouse::with_transport(&DeviceInfo::mock(), Box::new(mock), None);
+    assert_eq!(m.read_profile_list(), Some(vec![1]));
+    let p = m.read_profile(1, "Main").unwrap();
+    // slot 1 exists, the temporary layer always does
+    assert!(m.write_profile(&p, 1, None).is_ok());
+    assert!(m.write_profile(&p, TEMPORARY, None).is_ok());
+    // slots 2 and 5 do not: nothing is written
+    for slot in [2u8, 5] {
+        let e = m.write_profile(&p, slot, None).unwrap_err();
+        assert_eq!(e.code(), "invalid");
+        assert!(e.to_string().contains(&format!("slot {slot} is not in the mouse (it has 1)")), "{e}");
+    }
+}

@@ -1,5 +1,7 @@
 # open-rzr
 
+[![Latest release](https://img.shields.io/github/v/release/aspidovss/open-rzr?label=release)](https://github.com/aspidovss/open-rzr/releases/latest) [![Build](https://github.com/aspidovss/open-rzr/actions/workflows/build.yml/badge.svg)](https://github.com/aspidovss/open-rzr/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 [Русская версия](README.ru.md)
 
 An open-source configurator for **Razer mice** on **Windows and Linux** — first of all the **Razer Naga Pro**. Written in Rust with a Tauri window. It replaces Razer Synapse for everything the mouse itself can do.
@@ -23,10 +25,10 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 - **Customize** — every button with a drawing of the mouse, the three Naga Pro side plates (detected automatically), keys and shortcuts, mouse functions, macros, DPI and sniper, profiles, media keys, **turbo** for any button, **Hypershift** (second layer), find a button by pressing it.
 - **Profiles** — a library on this computer, five on-board slots, **Write to mouse** with a clear state (an interrupted write is shown as such), **Undo** after a reset, import/export, backup/restore, profiles linked to programs.
 - **Macros** — an editor like the original: recording, loops, nested macros, typed text, drag and drop, undo/redo; **program actions** (launch a program or website, run a command, type any text) performed by open-rzr through an F13–F24 trigger key.
-- **Software profile in slot 5** — buttons run by open-rzr itself: keys, mouse buttons and media keys held with the button, text, programs, commands; changed without writing to the mouse; they run on cable, receiver and Bluetooth alike (keys and mouse buttons on Linux through `/dev/uinput`).
+- **Software profile** in a slot of your choice — buttons run by open-rzr itself: keys, mouse buttons and media keys held with the button, text, programs, commands; changed without writing to the mouse; they run on cable, receiver and Bluetooth alike (on Linux keys and mouse buttons go through `/dev/uinput`, opened by the udev rule).
 - **Performance, lighting, power** — DPI stages, polling rate, lighting zones and effects, sleep, low power mode, battery.
 - **Diagnostics** — live log, report, all HID devices, drivers left by Synapse, raw commands, Bluetooth (HID and GATT) explorer and write self-test, device description files.
-- **Bluetooth (Naga Pro, Windows)** — button bindings (both layers, in the mouse's slots) and the sleep timer are changed over Bluetooth too; the other settings are read.
+- **Bluetooth (Naga Pro, Windows)** — button bindings (both layers, in the mouse's slots) and the sleep timer are written over Bluetooth too and stay in the mouse; the other settings are read. A write self-test checks what your mouse accepts.
 - **Help** — the built-in guide, the same as [`ui/docs`](ui/docs/en/getting-started.md).
 - **Command line** — `open-rzr-cli` and `orzr-cli` (razer-cli syntax).
 
@@ -53,7 +55,8 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 | Support | Models |
 |---|---|
 | Tested module | Razer Naga Pro — cable `1532:008F`, HyperSpeed receiver `1532:0090` |
-| Naga Pro family (experimental) | Naga V2 Pro `00A7` / `00A8`, Naga Pro over Bluetooth `0092` |
+| Tested over Bluetooth (Windows) | Razer Naga Pro `1532:0092`: buttons (both layers) and sleep timer written, the rest read |
+| Naga Pro family (experimental) | Naga V2 Pro `00A7` / `00A8` |
 | OpenRazer database + on-board check (experimental) | 68 current mice: Basilisk V2/V3, DeathAdder V2/V3, Viper, Cobra Pro, Naga X, Pro Click… |
 | OpenRazer database | older Razer mice: DPI, polling, battery, lighting |
 | Your description file | any Razer mouse with the same protocol: one `*.toml` / `*.json` per model in the `devices` folder, no recompiling |
@@ -63,6 +66,8 @@ Details: [Supported mice and Bluetooth](ui/docs/en/devices.md).
 ## Download and build
 
 Releases: the [Releases](../../releases) page (Windows zip and installer, Linux tar.gz, .deb, AppImage). What changed: [RELEASE_NOTES.en.md](RELEASE_NOTES.en.md).
+
+At first start the program shows the user agreement and asks whether to check GitHub for new versions. On Linux it offers to install the udev rule that gives your user access to the mouse (once, with the administrator password).
 
 ```powershell
 # Windows (Rust + Visual Studio Build Tools)
@@ -97,13 +102,19 @@ Four numbers, for example **0.8.1.5**: *major* (changes the program as a whole) 
 | `crates/rzr-core` | the library: capability traits, features, macro compiler, profiles, program actions |
 | `crates/rzr-cli` | `open-rzr-cli` (clap) and `orzr-cli` (razer-cli syntax) |
 | `app` | the Tauri window and tray |
+| `ui` | the window itself (HTML, CSS, JavaScript), translations (`ui/i18n`), the guide (`ui/docs`), the user agreement (`ui/legal`) |
+| `packaging` | Windows installer, Linux packages and udev rule, CI workflow, release text (`packaging/ci/release-notes.py`) |
 | `tools/uitest` | window tests in a browser against a mock — `npm test` |
 
-`.unwrap()` / `.expect()` are not allowed outside tests (clippy). GitHub builds, tests and checks every push: [`packaging/ci/github-build.yml`](packaging/ci/github-build.yml).
+`.unwrap()` / `.expect()` are not allowed outside tests (clippy). GitHub builds, tests and checks every push: [`.github/workflows/build.yml`](.github/workflows/build.yml); a `v*` tag publishes a release.
 
 ## Acknowledgements
 
 open-rzr is built on the open work of others — first of all **[OpenRazer](https://openrazer.github.io)** (device database, report format, DPI, power and lighting commands), and also [razerqdhid](https://github.com/geezmolycos/razerqdhid), [naga-synapse](https://github.com/Renari/naga-synapse), [razer-cli](https://github.com/LoLei/razer-cli) and [Polychromatic](https://github.com/polychromatic/polychromatic). **Special thanks to the OpenRazer community.** Full list: [Acknowledgements](ui/docs/en/credits.md).
+
+## Author and contact
+
+[@AspidovSS](https://github.com/aspidovss) · [orzr@aspidov.ru](mailto:orzr@aspidov.ru) · bugs and ideas: [Issues](../../issues) — attach a report from **Diagnostics → Save report** (the HID device list, the mouse state and its buttons, the last log lines; open-rzr itself sends nothing anywhere).
 
 ## License
 

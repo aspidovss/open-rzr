@@ -233,6 +233,15 @@ function showPage(name) {
   if (name === "settings") loadSettings();
   if (name === "help") quiet(openHelp());
   if (name === "buttons") drawCustomize();
+  updateFill();
+}
+
+/** Help and the Diagnostics log fill the window (no window scroll bar, see style.css). */
+function updateFill() {
+  const p = currentPage();
+  const fill = p === "help" || (p === "diag" && !$("#diag-log-view").classList.contains("hidden"));
+  $("#pages").classList.toggle("fill", fill);
+  $("#pages").classList.toggle("fill-help", p === "help");
 }
 const currentPage = () => ($$(".page").find((p) => !p.classList.contains("hidden")) || { id: "" }).id.replace("page-", "");
 
@@ -661,6 +670,7 @@ function showDiagView(v) {
   $$("#diag-views button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
   $("#diag-log-view").classList.toggle("hidden", v !== "log");
   $("#diag-wl-view").classList.toggle("hidden", v !== "wl");
+  updateFill();
   if (v === "wl" && !WL.r) quiet(loadWireless());
 }
 
@@ -747,7 +757,21 @@ function hexRange(s) {
  * written binding survives switching the mouse off and on. Every step is logged. */
 async function bleSelfTest() {
   if (WL.busy) return;
-  if (!(await confirmBox(t("wl.t_title"), t("wl.t_warn"), t("wl.t_start")))) return;
+  // the test button: one of the buttons this mouse has (side button 12 on a Naga Pro with the
+  // 12-button plate); never left/right, the wheel or the profile button
+  let cand;
+  try { cand = await api.call("ble_selftest", { step: "buttons", way: null, value: null }); } catch (e) { status(errText(e), true); return; }
+  const ids = cand.buttons || [];
+  const btnLabel = (id) => `${buttonName(id)} (${hex2(id)})`;
+  const pick = await modal((box, close) => {
+    const sel = el("select", { id: "wl-test-btn" }, ids.map((id) => el("option", { value: id, text: btnLabel(id) })));
+    box.append(el("h2", { text: t("wl.t_title") }), el("div", { text: t("wl.t_warn") }),
+      ids.length ? el("label", { class: "row" }, el("span", { text: t("wl.t_button") }), sel) : el("div", { class: "notice", text: t("wl.t_no_button") }),
+      el("div", { class: "buttons" }, el("button", { text: t("common.cancel"), onclick: () => close(null) }),
+        el("button", { class: "primary", text: t("wl.t_start"), onclick: () => close({ b: ids.length ? +sel.value : 0 }) })));
+  });
+  if (!pick) return;
+  const B = pick.b ? btnLabel(pick.b) : "";
   WL.busy = true;
   const stages = [1, 2, 3, 4, 5].map((n) => ({ n, ok: null, note: "", lines: [] }));
   WL.test = { stages };
@@ -770,7 +794,7 @@ async function bleSelfTest() {
       setTimeout(() => close(e.key), 250);
     };
     document.addEventListener("keydown", onKey, true);
-    box.append(el("h2", { text: t("wl.t_press_title") }), el("div", { text: title }), got,
+    box.append(el("h2", { text: t("wl.t_press_title", { b: B }) }), el("div", { text: title }), got,
       el("div", { class: "buttons" }, el("button", { text: t("wl.t_skip"), onclick: () => { document.removeEventListener("keydown", onKey, true); close(null); } })));
   });
   try {
@@ -778,10 +802,16 @@ async function bleSelfTest() {
     const a = await step(stages[0], "sleep");
     stages[0].ok = a.ok;
     status(t("wl.t_running", { n: 2 })); drawWireless();
+    stages[1].lines.push(...cand.lines);
+    if (pick.b) await step(stages[1], "select", pick.b);
     const b = await step(stages[1], "targets");
     stages[1].ok = b.ok;
     const act = b.ok ? b.way : null;
     stages[1].note = act != null ? "→ " + act : "";
+    if (!pick.b) {
+      // no button the test may change: the button stages are left out
+      for (const st of stages.slice(2)) st.note = t("wl.t_no_button");
+    } else {
     // variants: the active stored profile, the live profile 1, both (stored first, as Synapse)
     const vars = [];
     if (act >= 2 && act <= 5) vars.push([act], [1], [act, 1]);
@@ -794,7 +824,7 @@ async function bleSelfTest() {
       status(t("wl.t_running3", { l: i + 1, n: vars.length })); drawWireless();
       let ok = false, same = false;
       for (const tg of v) { const c = await step(stages[2], "target_write", tg, "f"); ok = ok || c.ok; same = same || c.same; }
-      const key = ok ? await press(t("wl.t_press_layout", { l: i + 1, p: label })) : null;
+      const key = ok ? await press(t("wl.t_press_layout", { l: i + 1, p: label, b: B })) : null;
       const works = key === "7";
       log(stages[2], `variant ${label}: ${ok ? "OK" : "refused"}, read back ${same ? "as written" : "unchanged"}, key ${JSON.stringify(key)}`);
       notes.push(`${label}: ${works ? "7 ✓" : key ? JSON.stringify(key) : ok ? "—" : t("wl.t_refused")}${same ? " (" + t("wl.t_read_changed") + ")" : ""}`);
@@ -803,10 +833,11 @@ async function bleSelfTest() {
       drawWireless();
     }
     stages[2].ok = found !== null;
-    stages[2].note = (found !== null ? t("wl.t_found", { p: found }) + " · " : "") + notes.join(" · ") + (restored ? "" : " · " + t("wl.t_not_restored"));
-    const k = await press(t("wl.t_back_text"));
+    stages[2].note = (found !== null ? t("wl.t_found", { p: found }) + " · " : "") + notes.join(" · ") + (restored ? "" : " · " + t("wl.t_not_restored", { b: B }));
+    const k = await press(t("wl.t_back_text", { b: B }));
     log(stages[2], "after restore pressed " + JSON.stringify(k));
-    if (k && k !== "=") stages[2].note += " · " + t("wl.t_not_restored");
+    // the original binding may be anything (a key, "back"…): it only must not type 7 any more
+    if (k === "7") stages[2].note += " · " + t("wl.t_not_restored", { b: B });
     // the profiles to write: those of the variant that worked, else the active one
     const tgs = found !== null ? found.split("+").map(Number) : [act >= 1 && act <= 5 ? act : 1];
     // stage 4: the Hypershift layer (byte 01) of the first of them; checked by reading back
@@ -814,12 +845,12 @@ async function bleSelfTest() {
     const h = await step(stages[3], "target_write", tgs[0], "hs_f");
     const hb = await step(stages[3], "target_write", tgs[0], "hs_orig");
     stages[3].ok = h.ok && !!h.same;
-    stages[3].note = (h.ok ? (h.same ? t("wl.t_hs_ok") : t("wl.t_hs_no")) : t("wl.t_refused")) + (hb.ok && hb.same ? "" : " · " + t("wl.t_not_restored"));
+    stages[3].note = (h.ok ? (h.same ? t("wl.t_hs_ok") : t("wl.t_hs_no")) : t("wl.t_refused")) + (hb.ok && hb.same ? "" : " · " + t("wl.t_not_restored", { b: B }));
     // stage 5 (if the user agrees): does a binding stay after the mouse is switched off and on?
-    if (found !== null && await confirmBox(t("wl.t_persist_title"), t("wl.t_persist_ask"), t("wl.t_persist_start"))) {
+    if (found !== null && await confirmBox(t("wl.t_persist_title"), t("wl.t_persist_ask", { b: B }), t("wl.t_persist_start"))) {
       status(t("wl.t_running", { n: 5 })); drawWireless();
       for (const tg of tgs) await step(stages[4], "target_write", tg, "f");
-      const go = await modal((box, close) => box.append(el("h2", { text: t("wl.t_persist_title") }), el("div", { text: t("wl.t_persist_off") }),
+      const go = await modal((box, close) => box.append(el("h2", { text: t("wl.t_persist_title") }), el("div", { text: t("wl.t_persist_off", { b: B }) }),
         el("div", { class: "buttons" }, el("button", { text: t("wl.t_skip"), onclick: () => close(false) }), el("button", { class: "primary", text: t("wl.t_persist_go"), onclick: () => close(true) }))));
       let back = null;
       if (go) {
@@ -831,7 +862,7 @@ async function bleSelfTest() {
         }
       }
       const kept = back ? !!back.same : null;
-      const key = back ? await press(t("wl.t_persist_press")) : null;
+      const key = back ? await press(t("wl.t_persist_press", { b: B })) : null;
       log(stages[4], `after off/on: ${back ? (kept ? "reads key 7" : "reads the original") : "no answer"}, key ${JSON.stringify(key)}`);
       let restored = true;
       for (const tg of [...tgs].reverse()) {
@@ -840,9 +871,10 @@ async function bleSelfTest() {
         }
       }
       stages[4].ok = back ? true : false;
-      stages[4].note = (!go ? t("wl.t_persist_skipped") : !back ? t("wl.t_persist_noanswer") : kept && key === "7" ? t("wl.t_persist_yes") : kept ? t("wl.t_persist_read") : t("wl.t_persist_no")) + (restored ? "" : " · " + t("wl.t_not_restored"));
+      stages[4].note = (!go ? t("wl.t_persist_skipped") : !back ? t("wl.t_persist_noanswer") : kept && key === "7" ? t("wl.t_persist_yes") : kept ? t("wl.t_persist_read") : t("wl.t_persist_no")) + (restored ? "" : " · " + t("wl.t_not_restored", { b: B }));
       if (!go) stages[4].ok = null;
     } else stages[4].note = t("wl.t_persist_skipped");
+    }
     const ok = stages.filter((x) => x.ok !== null).every((x) => x.ok);
     status(ok ? t("wl.t_all_ok") : t("wl.t_some_failed"), !ok);
   } catch (e) {

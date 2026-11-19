@@ -53,7 +53,7 @@ Macros and F13–F24 work in either layer.
 
 ## Software profile (buttons run by open-rzr)
 
-**Profile menu → Software profile in slot 5…** makes a copy of the current profile, marks it as *software* and writes it to on-board slot 5 — the other slots stay ordinary. Switch to it with the profile button of the mouse.
+**Profile menu → Software profile in its own slot…** makes a copy of the current profile, marks it as *software* and writes it to the on-board slot you choose (slot 5 when the mouse has it) — the other slots stay ordinary. Switch to it with the profile button of the mouse.
 
 In a software profile a button can be bound to **⚡ Run by open-rzr**: the mouse sends a trigger key (F13–F24, written once), and open-rzr performs a list of actions while it runs:
 

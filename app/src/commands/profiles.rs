@@ -52,6 +52,38 @@ pub(crate) fn mark_written(st: &AppState, slot: u8, p: Option<&Profile>) {
     s.save();
 }
 
+/// Forget which profile is in a slot the mouse does not have (any more) — deleted, or lost —
+/// so that "In slot …" and writing to the mouse never count it. Only with a list the mouse
+/// reported; nothing is forgotten when it could not be read.
+pub(crate) fn reconcile_slots(st: &AppState, serial: &str, have: &[u8]) {
+    let mut s = lock(&st.store);
+    let mut gone = Vec::new();
+    if let Some(v) = s.slots.get_mut(serial) {
+        for (i, e) in v.iter_mut().enumerate() {
+            let slot = i as u8 + 1;
+            if e.is_some() && !have.contains(&slot) {
+                gone.push(slot);
+                *e = None;
+            }
+        }
+    }
+    let mut changed = !gone.is_empty();
+    if let Some(w) = s.written.get_mut(serial) {
+        for (i, e) in w.iter_mut().enumerate() {
+            if e.is_some() && !have.contains(&(i as u8 + 1)) {
+                *e = None;
+                changed = true;
+            }
+        }
+    }
+    if !gone.is_empty() {
+        log_info!("ui", "slots {gone:?} are not in the mouse (it has {have:?}): their profiles are no longer counted there");
+    }
+    if changed {
+        s.save();
+    }
+}
+
 pub(crate) fn serial_of(st: &AppState) -> String {
     lock(&st.serial).clone()
 }

@@ -65,6 +65,18 @@ impl RazerMouse {
 
     pub fn write_profile(&mut self, p: &Profile, slot: u8, previous: Option<&Profile>) -> Result<usize> {
         self.need(feat::BUTTONS)?;
+        // a slot the mouse does not have: over Bluetooth the mouse even answers "OK" to such
+        // writes, but the slot cannot be chosen, so the profile would be written nowhere
+        if slot != TEMPORARY {
+            if let Some(list) = self.read_profile_list() {
+                if !list.contains(&slot) {
+                    return Err(Error::Invalid(format!(
+                        "slot {slot} is not in the mouse (it has {}) — create it first (On-board memory, by cable)",
+                        list.iter().map(u8::to_string).collect::<Vec<_>>().join(", ")
+                    )));
+                }
+            }
+        }
         let t0 = Instant::now();
         let mut n = 0;
         // macros first: bindings may refer to them

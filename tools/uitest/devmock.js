@@ -238,7 +238,8 @@
       { id: 0x34, normal: { kind: "mouse_turbo", button: 9, interval: 100 }, hypershift: { kind: "mouse_turbo", button: 9, interval: 20 } },
       { id: 0x40, normal: { kind: "keyboard", key: 0x35, modifiers: 0 }, hypershift: { kind: "keyboard", key: 0x1e, modifiers: 0 } },
       { id: 0x41, normal: { kind: "mouse", button: 4 }, hypershift: { kind: "keyboard", key: 0x1f, modifiers: 0 } }],
-    ble_selftest: ({ step, way, value }) => { (st.selftest = st.selftest || []).push(step + (value ? ":" + way + value : ""));
+    ble_selftest: ({ step, way, value }) => { (st.selftest = st.selftest || []).push(step + (value ? ":" + way + value : step === "select" ? ":" + way : ""));
+      if (step === "buttons") return { ok: true, way: 0x4b, same: null, buttons: [0x4b, 0x40, 0x05, 0x03], lines: ["buttons the test may use: 4b 40 05 03"] };
       if (step === "targets") return { ok: true, way: 2, same: null, lines: ["active profile: 03 82 sub 00 00 → 02 OK [02]"] };
       return { ok: true, way: way ?? 0, same: step === "target_write" ? value !== "f" : true, lines: [`${step}: 08 04 sub 0${way ?? 0} 4b → 02 OK`] }; },
     hide_to_tray: () => { st.hidden = true; return null; },

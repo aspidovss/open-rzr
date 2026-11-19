@@ -146,7 +146,8 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
     }
     ci.idle = m.get_idle_time().ok();
     ci.low = m.get_low_battery_threshold().ok();
-    ci.profiles = m.list_profiles();
+    let slots = m.read_profile_list();
+    ci.profiles = slots.clone().unwrap_or_else(|| vec![1]);
     ci.side_plates = m.spec.side_plates && m.has(feat::SIDE_PLATE);
     if ci.side_plates {
         ci.plate = m.side_plate().unwrap_or_else(|e| {
@@ -158,6 +159,10 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
     let serial = if ci.serial.is_empty() { format!("{:04x}", m.info.pid) } else { ci.serial.clone() };
     ci.plate_choice = lock(&st.store).plate_choice.get(&serial).cloned().unwrap_or_else(|| "auto".into());
     log_info!("ui", "side plate: detected {:?}, choice \"{}\"", ci.plate, ci.plate_choice);
+    // slots remembered for this mouse that it does not have (any more) are forgotten
+    if let Some(have) = &slots {
+        crate::commands::profiles::reconcile_slots(&st, &serial, have);
+    }
     *lock(&st.serial) = serial;
     *lock(&st.mouse) = Some(m);
     *lock(&st.temp_layer) = None;

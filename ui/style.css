@@ -61,6 +61,15 @@ button.icon { padding: 4px 9px; min-width: 32px; }
 #auto-chip { border: 1px solid var(--accent-dim); color: var(--accent); border-radius: 10px; padding: 1px 8px; }
 
 #pages { flex: 1; overflow: auto; padding: 22px 28px; }
+/* Help and the Diagnostics log fill the window: only the log, the contents and the text scroll,
+   never the window itself (whatever the window style and size) */
+#pages.fill { overflow: hidden; display: flex; flex-direction: column; }
+#pages.fill > .page:not(.hidden) { flex: 1 1 auto; min-height: 0; width: 100%; }
+#pages.fill-help { padding: 0; }
+#pages.fill #diag-log-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+#pages.fill pre#log { flex: 1; height: auto; }
+/* a very low window: the log keeps a usable height, and the window scrolls after all */
+@media (max-height: 480px) { #pages.fill:not(.fill-help) { overflow: auto; } #pages.fill:not(.fill-help) > .page:not(.hidden) { flex: none; } }
 .page { display: flex; flex-direction: column; gap: 14px; max-width: 1200px; margin: 0 auto; }
 h1 { margin: 0; font-size: 20px; font-weight: 600; }
 .sub { margin: -6px 0 0; color: var(--muted); }
@@ -309,7 +318,7 @@ table.list tr.off td:last-child { color: #555; }
 input[type=color] { width: 46px; height: 28px; padding: 0; border: 1px solid #555; border-radius: 6px; background: none; cursor: pointer; }
 
 pre#log { margin: 0; background: #101214; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
-  height: calc(100vh - 330px); min-height: 200px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; user-select: text; }
+  height: calc(100vh - 330px); min-height: 160px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; user-select: text; }
 pre#log .e { color: #ff8a8a; } pre#log .w { color: #f0c060; } pre#log .d { color: #7d8590; } pre#log .u { color: #8fd3c3; }
 
 #modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 10; }
@@ -467,7 +476,7 @@ h1 button.help-link { margin-left: 6px; position: relative; top: -2px; }
 
 /* the guide */
 #page-help { padding: 0 !important; }
-.help-wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: calc(100vh - 47px); }
+.help-wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; }
 .help-toc { border-right: 1px solid var(--border); padding: 16px 12px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
 .help-toc input { width: 100%; }
 #help-list { list-style: none; margin: 0; padding: 0; }
@@ -494,7 +503,7 @@ h1 button.help-link { margin-left: 6px; position: relative; top: -2px; }
 .md img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; }
 .md blockquote { border-left: 3px solid var(--accent-dim); margin: 10px 0; padding: 4px 12px; color: var(--muted); }
 .md mark { background: #4a5d1a; color: #fff; border-radius: 2px; }
-@media (max-width: 760px) { .help-wrap { grid-template-columns: 1fr; } .help-toc { border-right: 0; border-bottom: 1px solid var(--border); max-height: 180px; } #help-body { padding: 16px; } }
+@media (max-width: 760px) { .help-wrap { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .help-toc { border-right: 0; border-bottom: 1px solid var(--border); max-height: 180px; } #help-body { padding: 16px; } }
 
 /* Diagnostics → Wireless */
 .scroll-box.wl { padding: 10px 12px; max-height: 60vh; }

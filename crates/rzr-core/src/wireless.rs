@@ -418,13 +418,42 @@ pub struct TestReport {
     /// "button_change": the record read back equals the one written
     pub same: Option<bool>,
     pub lines: Vec<String>,
+    /// "buttons": the buttons of the mouse the test may use, the preferred one first
+    pub buttons: Vec<u8>,
 }
 
 /// Ways to send a "set", tried in this order: (sub1 of the button commands, combined in one write).
 pub const WRITE_WAYS: [(u8, bool); 4] = [(0, false), (1, false), (0, true), (1, true)];
 
-/// The test button: side button 12 (12-button plate) — "=" by default.
+/// The default test button: side button 12 (12-button plate) — "=" by default.
 pub const TEST_BUTTON: u8 = 0x4b;
+
+/// The test button chosen for this run ("select" step); side button 12 until then.
+static TEST_BTN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(TEST_BUTTON);
+
+fn test_button() -> u8 {
+    TEST_BTN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Buttons the self-test never changes: without them the mouse is hard to use if something goes
+/// wrong (left and right button, the wheel and its tilt, the profile button).
+pub const NEVER_TEST: [u8; 7] = [0x01, 0x02, 0x09, 0x0a, 0x34, 0x35, 0x0e];
+
+/// Of the buttons a mouse has, those the self-test may use, the preferred first: side button 12,
+/// the other side keys, forward and back, the middle button, then any other except `NEVER_TEST`.
+pub fn test_candidates(ids: &[u8]) -> Vec<u8> {
+    let rank = |b: u8| match b {
+        TEST_BUTTON => 0,
+        0x40..=0x5f => 1,
+        0x05 | 0x04 => 2,
+        0x03 => 3,
+        _ => 4,
+    };
+    let mut v: Vec<u8> = ids.iter().copied().filter(|b| *b != 0 && !NEVER_TEST.contains(b)).collect();
+    v.sort_by_key(|b| (rank(*b), *b));
+    v.dedup();
+    v
+}
 
 /// The binding of the test button before step 3, to put back.
 static ORIGINAL: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
@@ -581,14 +610,14 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 note(&mut t, "✗ no way of writing changed the sleep timer".into());
             }
             "button_same" => {
-                let Some(rec) = read_button(s, &mut t, TEST_BUTTON) else {
+                let Some(rec) = read_button(s, &mut t, test_button()) else {
                     note(&mut t, "cannot read the test button — stopped".into());
                     return (t, true);
                 };
-                note(&mut t, format!("test button {TEST_BUTTON:02x}: {}", crate::ble::describe(0x08, 0x84, [0, TEST_BUTTON], &crate::ble::Reply { tid: 0, status: 2, len: 16, data: rec.clone() })));
+                note(&mut t, format!("test button {:02x}: {}", test_button(), crate::ble::describe(0x08, 0x84, [0, test_button()], &crate::ble::Reply { tid: 0, status: 2, len: 16, data: rec.clone() })));
                 for w in 0..WRITE_WAYS.len() as u8 {
                     if write_button(s, &mut t, &rec, w) {
-                        let back = read_button(s, &mut t, TEST_BUTTON);
+                        let back = read_button(s, &mut t, test_button());
                         t.ok = back.as_deref() == Some(&rec[..]);
                         t.way = Some(w);
                         let ok = t.ok;
@@ -605,7 +634,7 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 // the change may go to the live (unsaved) layer while reading shows the stored
                 // profile: the user presses the button whatever reads back
                 let w = way.unwrap_or(0);
-                let Some(rec) = read_button(s, &mut t, TEST_BUTTON) else {
+                let Some(rec) = read_button(s, &mut t, test_button()) else {
                     note(&mut t, "cannot read the test button — stopped".into());
                     return (t, true);
                 };
@@ -615,11 +644,11 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 }
                 drop(orig);
                 let f = with_key_f(&rec);
-                note(&mut t, format!("setting the normal action of button {TEST_BUTTON:02x} to the key F (way {w}): {}", hex(&f, 16)));
+                note(&mut t, format!("setting the normal action of button {:02x} to the key F (way {w}): {}", test_button(), hex(&f, 16)));
                 t.way = Some(w);
                 if write_button(s, &mut t, &f, w) {
                     t.ok = true;
-                    let back = read_button(s, &mut t, TEST_BUTTON);
+                    let back = read_button(s, &mut t, test_button());
                     let same = back.as_deref() == Some(&f[..]);
                     t.same = Some(same);
                     note(&mut t, if same { "reads back as written".into() } else { "reads back unchanged (the change may be live only)".into() });
@@ -635,7 +664,7 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 for w in [0u8, 1] {
                     write_button(s, &mut t, &orig, w);
                 }
-                let back = read_button(s, &mut t, TEST_BUTTON);
+                let back = read_button(s, &mut t, test_button());
                 t.ok = back.as_deref() == Some(&orig[..]);
                 let ok = t.ok;
                 note(&mut t, if ok { "✓ the stored binding is as before — press the button to check that it types = again".into() } else { format!("✗ not restored — set side button 12 by cable (was {})", hex(&orig, 16)) });
@@ -646,7 +675,7 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
             "button_layout" => {
                 // stage 3: layout `way` — set the normal action to F ("f") or back ("orig")
                 let l = way.unwrap_or(0) as usize;
-                let Some(rec) = read_button(s, &mut t, TEST_BUTTON) else {
+                let Some(rec) = read_button(s, &mut t, test_button()) else {
                     note(&mut t, "cannot read the test button — stopped".into());
                     return (t, true);
                 };
@@ -658,13 +687,46 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                     return (t, true);
                 };
                 let n = if value == "orig" { n0.clone() } else { vec![0x02, 0x02, 0x00, 0x09] };
-                let (sub, payload) = button_layout(l, TEST_BUTTON, &n, &h0);
+                let (sub, payload) = button_layout(l, test_button(), &n, &h0);
                 let r = ble_send(s, 0x08, 0x04, sub, &payload, false, 600);
                 line(&mut t, &r, &format!("layout {l} ({}) {} [{}]", BUTTON_LAYOUTS.get(l).unwrap_or(&"?"), if value == "orig" { "back to the original" } else { "→ F" }, hex(&payload, 16)));
                 t.ok = r.status == crate::protocol::status::OK;
                 t.way = Some(l as u8);
-                let back = read_button(s, &mut t, TEST_BUTTON);
+                let back = read_button(s, &mut t, test_button());
                 t.same = Some(back.as_deref() == Some(&orig[..]));
+            }
+            "buttons" => {
+                // the buttons of the active profile, to choose the test button from
+                let act = ble_ask(s, 0x03, 0x82, [0, 0], 600);
+                let p = (act.status == crate::protocol::status::OK).then(|| act.raw.first().copied()).flatten().filter(|p| (1..=5).contains(p)).unwrap_or(1);
+                let all = ble_ask(s, 0x08, 0x83, [p, 0], 1500);
+                line(&mut t, &all, &format!("bindings of profile {p}"));
+                let mut ids: Vec<u8> = all.raw.chunks_exact(16).map(|c| c[0]).filter(|b| *b != 0).collect();
+                if ids.is_empty() {
+                    // one by one, the usual buttons only
+                    for b in [TEST_BUTTON, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x05, 0x04, 0x03] {
+                        if ble_ask(s, 0x08, 0x84, [0, b], 600).status == crate::protocol::status::OK {
+                            ids.push(b);
+                        }
+                    }
+                }
+                t.buttons = test_candidates(&ids);
+                t.ok = !t.buttons.is_empty();
+                t.way = t.buttons.first().copied();
+                let list = t.buttons.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+                note(&mut t, format!("buttons the test may use: {list}"));
+            }
+            "select" => {
+                let b = way.unwrap_or(TEST_BUTTON);
+                if b == 0 || NEVER_TEST.contains(&b) {
+                    note(&mut t, format!("button {b:02x} is never used by the test"));
+                    return (t, true);
+                }
+                TEST_BTN.store(b, std::sync::atomic::Ordering::Relaxed);
+                *ORIG_T.lock().unwrap_or_else(|e| e.into_inner()) = [None, None, None, None, None, None];
+                t.ok = true;
+                t.way = Some(b);
+                note(&mut t, format!("test button: {b:02x}"));
             }
             "targets" => {
                 // stage 2: which profile ("target") the mouse works by, and the test button in
@@ -677,7 +739,7 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 let active = (act.status == crate::protocol::status::OK).then(|| act.raw.first().copied()).flatten();
                 let mut g = ORIG_T.lock().unwrap_or_else(|e| e.into_inner());
                 for tg in 0..=5u8 {
-                    let r = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 600);
+                    let r = ble_ask(s, 0x08, 0x84, [tg, test_button()], 600);
                     line(&mut t, &r, &format!("test button in profile {tg}"));
                     if r.status == crate::protocol::status::OK && r.raw.len() >= 16 {
                         let rec = r.raw[..16].to_vec();
@@ -719,7 +781,7 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 let rec = match rec {
                     Some(r) => r,
                     None => {
-                        let r = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 600);
+                        let r = ble_ask(s, 0x08, 0x84, [tg, test_button()], 600);
                         line(&mut t, &r, &format!("read test button in profile {tg}"));
                         if r.status != crate::protocol::status::OK || r.raw.len() < 16 {
                             note(&mut t, "cannot read the test button — stopped".into());
@@ -736,12 +798,12 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 };
                 let other = pad7(&orig[1 - layer as usize]);
                 let block = if restore { pad7(&orig[layer as usize]) } else { KEY_7.to_vec() };
-                let payload = target_payload(tg, TEST_BUTTON, layer, &block);
-                let r = ble_send(s, 0x08, 0x04, [tg, TEST_BUTTON], &payload, false, 600);
+                let payload = target_payload(tg, test_button(), layer, &block);
+                let r = ble_send(s, 0x08, 0x04, [tg, test_button()], &payload, false, 600);
                 line(&mut t, &r, &format!("write profile {tg} {lane} {} [{}]", if restore { "back to the original" } else { "→ key 7" }, hex(&payload, 16)));
                 t.ok = r.status == crate::protocol::status::OK;
                 t.way = Some(tg);
-                let back = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 600);
+                let back = ble_ask(s, 0x08, 0x84, [tg, test_button()], 600);
                 line(&mut t, &back, &format!("read back profile {tg}"));
                 let lanes = (back.raw.len() >= 16).then(|| crate::ble::binding(&back.raw[..16])).flatten().map(|(_, l)| [pad7(&l[0]), pad7(&l[1])]);
                 // written as asked, and the other layer untouched
@@ -749,13 +811,13 @@ pub fn ble_selftest(step: &str, way: Option<u8>, value: &str) -> Result<TestRepo
                 if let Some(rec) = (back.raw.len() >= 16).then(|| back.raw[..16].to_vec()) {
                     note(&mut t, format!("  profile {tg} now: {}", target_text(&rec)));
                 }
-                let mirror = ble_ask(s, 0x08, 0x84, [0, TEST_BUTTON], 600);
+                let mirror = ble_ask(s, 0x08, 0x84, [0, test_button()], 600);
                 line(&mut t, &mirror, "read back profile 0 (active)");
             }
             "read_target" => {
                 // stage 5, after the mouse was switched off and on: is the key 7 still there?
                 let tg = way.unwrap_or(1);
-                let r = ble_ask(s, 0x08, 0x84, [tg, TEST_BUTTON], 1000);
+                let r = ble_ask(s, 0x08, 0x84, [tg, test_button()], 1000);
                 line(&mut t, &r, &format!("read test button in profile {tg}"));
                 if r.status == 0 {
                     // no reply: the mouse is still reconnecting; the next call opens a new session
@@ -1950,6 +2012,16 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_button_choice() {
+        // Naga Pro, 12-button plate: side button 12 first, never left/right/wheel/profile
+        let naga = [0x01, 0x02, 0x03, 0x34, 0x35, 0x0e, 0x0b, 0x0c, 0x40, 0x41, 0x4a, 0x4b, 0x05, 0x04, 0x09, 0x0a];
+        assert_eq!(test_candidates(&naga), vec![0x4b, 0x40, 0x41, 0x4a, 0x04, 0x05, 0x03, 0x0b, 0x0c]);
+        // a mouse without side keys: forward/back, then middle
+        assert_eq!(test_candidates(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x09, 0x0a]), vec![0x04, 0x05, 0x03]);
+        assert!(test_candidates(&[0x01, 0x02, 0x09, 0x0a]).is_empty());
+    }
 
     #[test]
     fn bridge_writes() {

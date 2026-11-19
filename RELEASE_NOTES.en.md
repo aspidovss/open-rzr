@@ -1,3 +1,18 @@
+## open-rzr 0.8.1.6
+
+### Fixed
+- **Slots the mouse does not have are no longer counted.** open-rzr remembered profiles in slots the mouse no longer has (here: 2 and 5 while the mouse had only slot 1), showed “In slot 1, 2, 5” and wrote the profile there too — over Bluetooth the mouse even answers “OK” to such writes. Now, when the mouse is connected, slots it does not report are forgotten (noted in the log), and writing a profile into a missing slot is refused: “slot N is not in the mouse — create it first”.
+- **Diagnostics and Help no longer scroll the whole window.** On the log view only the log scrolls between the buttons above and the command row below; in Help the contents and the text scroll on their own. Works in both window styles and at any window size; the Wireless view and the other pages scroll as before.
+
+### Write self-test
+- **The test button is chosen from the buttons of your mouse**: side button 12 on a Naga Pro with the 12-button plate, otherwise another side key, Back/Forward or the middle button; it can be changed before the start. Left and right button, the wheel and the profile button are never used. The hints name the chosen button; the final check only requires that it no longer types 7.
+
+### Documentation
+- README: release and build badges, Bluetooth support in the device table, first start, the `ui` and `packaging` folders, author and contact; the software profile is described as “in its own slot” (README and guide).
+
+### Checked on the mouse (Naga Pro, Bluetooth)
+- Button bindings from the program, the Hypershift layer (layer byte `01`), the sleep timer, and keeping a binding after the mouse is switched off and on — all work.
+
 ## open-rzr 0.8.1.5
 
 ### Bluetooth: settings can be written

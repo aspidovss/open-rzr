@@ -1,5 +1,7 @@
 # open-rzr
 
+[![Latest release](https://img.shields.io/github/v/release/aspidovss/open-rzr?label=release)](https://github.com/aspidovss/open-rzr/releases/latest) [![Build](https://github.com/aspidovss/open-rzr/actions/workflows/build.yml/badge.svg)](https://github.com/aspidovss/open-rzr/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 [English version](README.md)
 
 Открытая программа настройки **мышей Razer** для **Windows и Linux** — в первую очередь **Razer Naga Pro**. Написана на Rust, окно на Tauri. Заменяет Razer Synapse во всём, что умеет сама мышь.
@@ -23,10 +25,10 @@
 - **Настройка** — все кнопки на рисунке мыши, три боковые панели Naga Pro (определяются автоматически), клавиши и сочетания, функции мыши, макросы, DPI и снайпер, профили, медиа-клавиши, **турбо** для любой кнопки, **Hypershift** (второй слой), поиск кнопки нажатием.
 - **Профили** — библиотека на компьютере, пять слотов в памяти мыши, **Записать в мышь** с понятным состоянием (оборванная запись видна), **«Вернуть»** после сброса, импорт/экспорт, резервные копии, профили для программ.
 - **Макросы** — редактор как в оригинале: запись, циклы, вложенные макросы, печать текста, перетаскивание, отмена/повтор; **действия программы** (запуск программы или сайта, команда, ввод любого текста), которые выполняет open-rzr по клавише-триггеру F13–F24.
-- **Программный профиль в слоте 5** — кнопки, которые выполняет сама open-rzr: клавиши, кнопки мыши и медиаклавиши (удерживаются вместе с кнопкой), текст, программы, команды; меняются без записи в мышь и работают одинаково по кабелю, через приёмник и по Bluetooth (клавиши и кнопки мыши в Linux — через `/dev/uinput`).
+- **Программный профиль** в выбранном слоте — кнопки, которые выполняет сама open-rzr: клавиши, кнопки мыши и медиаклавиши (удерживаются вместе с кнопкой), текст, программы, команды; меняются без записи в мышь и работают одинаково по кабелю, через приёмник и по Bluetooth (в Linux клавиши и кнопки мыши — через `/dev/uinput`, доступ даёт правило udev).
 - **Производительность, подсветка, питание** — стадии DPI, частота опроса, зоны и эффекты подсветки, сон, режим экономии, батарея.
 - **Диагностика** — журнал, отчёт, все HID-устройства, драйверы от Synapse, команды вручную, исследование Bluetooth (HID и GATT) и самопроверка записи, файлы описаний устройств.
-- **Bluetooth (Naga Pro, Windows)** — назначения кнопок (оба слоя, в слотах мыши) и время до сна меняются и по Bluetooth; остальные настройки читаются.
+- **Bluetooth (Naga Pro, Windows)** — назначения кнопок (оба слоя, в слотах мыши) и время до сна записываются и по Bluetooth и остаются в мыши; остальные настройки читаются. Самопроверка записи покажет, что принимает ваша мышь.
 - **Справка** — встроенное руководство, то же, что в [`ui/docs`](ui/docs/ru/getting-started.md).
 - **Командная строка** — `open-rzr-cli` и `orzr-cli` (синтаксис razer-cli).
 
@@ -53,7 +55,8 @@
 | Поддержка | Модели |
 |---|---|
 | Проверенный модуль | Razer Naga Pro — кабель `1532:008F`, приёмник HyperSpeed `1532:0090` |
-| Семейство Naga Pro (экспериментально) | Naga V2 Pro `00A7` / `00A8`, Naga Pro по Bluetooth `0092` |
+| Проверено по Bluetooth (Windows) | Razer Naga Pro `1532:0092`: кнопки (оба слоя) и время до сна записываются, остальное читается |
+| Семейство Naga Pro (экспериментально) | Naga V2 Pro `00A7` / `00A8` |
 | База OpenRazer + проверка памяти (экспериментально) | 68 современных мышей: Basilisk V2/V3, DeathAdder V2/V3, Viper, Cobra Pro, Naga X, Pro Click… |
 | База OpenRazer | более старые мыши Razer: DPI, частота опроса, батарея, подсветка |
 | Ваш файл описания | любая мышь Razer с тем же протоколом: по одному `*.toml` / `*.json` на модель в папке `devices`, без пересборки |
@@ -63,6 +66,8 @@
 ## Загрузка и сборка
 
 Готовые версии — на странице [Releases](../../releases) (Windows: zip и установщик; Linux: tar.gz, .deb, AppImage). Что изменилось — [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+При первом запуске программа показывает пользовательское соглашение и спрашивает, проверять ли новые версии на GitHub. В Linux она предложит установить правило udev, которое даёт вашему пользователю доступ к мыши (один раз, с паролем администратора).
 
 ```powershell
 # Windows (Rust + Visual Studio Build Tools)
@@ -97,13 +102,19 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 [-Installer
 | `crates/rzr-core` | библиотека: трейты возможностей, функции, компилятор макросов, профили, действия программы |
 | `crates/rzr-cli` | `open-rzr-cli` (clap) и `orzr-cli` (синтаксис razer-cli) |
 | `app` | окно Tauri и трей |
+| `ui` | само окно (HTML, CSS, JavaScript), переводы (`ui/i18n`), руководство (`ui/docs`), пользовательское соглашение (`ui/legal`) |
+| `packaging` | установщик Windows, пакеты и правило udev для Linux, сценарий CI, текст релиза (`packaging/ci/release-notes.py`) |
 | `tools/uitest` | тесты окна в браузере против имитации — `npm test` |
 
-`.unwrap()` / `.expect()` вне тестов запрещены (clippy). GitHub собирает, тестирует и проверяет каждый push: [`packaging/ci/github-build.yml`](packaging/ci/github-build.yml).
+`.unwrap()` / `.expect()` вне тестов запрещены (clippy). GitHub собирает, тестирует и проверяет каждый push: [`.github/workflows/build.yml`](.github/workflows/build.yml); тег `v*` выпускает релиз.
 
 ## Благодарности
 
 open-rzr построена на открытой работе других людей — прежде всего **[OpenRazer](https://openrazer.github.io)** (база устройств, формат пакетов, команды DPI, питания и подсветки), а также [razerqdhid](https://github.com/geezmolycos/razerqdhid), [naga-synapse](https://github.com/Renari/naga-synapse), [razer-cli](https://github.com/LoLei/razer-cli) и [Polychromatic](https://github.com/polychromatic/polychromatic). **Отдельная благодарность сообществу OpenRazer.** Полный список: [Благодарности](ui/docs/ru/credits.md).
+
+## Автор и связь
+
+[@AspidovSS](https://github.com/aspidovss) · [orzr@aspidov.ru](mailto:orzr@aspidov.ru) · ошибки и идеи: [Issues](../../issues) — приложите отчёт из **Диагностика → Сохранить отчёт** (список HID-устройств, состояние мыши и её кнопок, последние строки журнала; сама open-rzr ничего никуда не отправляет).
 
 ## Лицензия
 

@@ -24,6 +24,8 @@ pub struct MockNagaPro {
     pub side_frame: Vec<u8>,
     /// 0x00B9 code: 3 = 12-button plate
     pub plate_code: u8,
+    /// on-board slots the mouse has
+    pub profiles: Vec<u8>,
 }
 
 fn rec(bytes: &[u8]) -> [u8; 7] {
@@ -70,6 +72,7 @@ impl MockNagaPro {
             side_custom: false,
             side_frame: Vec::new(),
             plate_code: 3,
+            profiles: vec![1, 2, 3, 4, 5],
         }
     }
 
@@ -115,8 +118,11 @@ impl MockNagaPro {
             cmd::SET_IDLE_TIME => self.idle = be16(0),
             cmd::GET_LOW_BATTERY => out[0] = self.low_batt,
             cmd::SET_LOW_BATTERY => self.low_batt = a[0],
-            cmd::GET_PROFILE_COUNT => out[0] = 5,
-            cmd::GET_PROFILE_LIST => out[..6].copy_from_slice(&[5, 1, 2, 3, 4, 5]),
+            cmd::GET_PROFILE_COUNT => out[0] = self.profiles.len() as u8,
+            cmd::GET_PROFILE_LIST => {
+                out[0] = self.profiles.len() as u8;
+                out[1..1 + self.profiles.len()].copy_from_slice(&self.profiles);
+            }
             cmd::GET_BUTTON => {
                 let r = self.buttons.get(&(a[0], a[1], a[2]))?;
                 out[3..10].copy_from_slice(r);

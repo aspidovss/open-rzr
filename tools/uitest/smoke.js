@@ -101,10 +101,14 @@ async function shot(p, name) {
     check(`${lang}: "not supported" hidden`, (await p.$$eval("#diag-wl-view .card.wl:first-of-type tr", (r) => r.length)) < 20);
     await shot(p, `${lang}-wireless`);
     // write self-test: 3 stages, the user confirms the key F
-    await p.evaluate(() => { window.__realConfirm = confirmBox; window.confirmBox = async () => true; });
     await p.click('#diag-wl-view button:has-text("' + (lang === "en" ? "Run the self-test" : "Запустить самопроверку") + '")');
+    // the test button is chosen from the mouse's buttons: side button 12 first; take side button 1
+    await p.waitForSelector("#wl-test-btn", { timeout: 5000 });
+    check(`${lang}: test button offered, side 12 first`, (await p.$$eval("#wl-test-btn option", (o) => o.map((x) => +x.value))).join(",") === "75,64,5,3");
+    await p.selectOption("#wl-test-btn", "64");
+    await p.click('#modal:not(.hidden) button.primary');
     await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 });
-    await p.evaluate(() => { window.confirmBox = window.__realConfirm; });
+    check(`${lang}: press dialog names the chosen button`, (await p.textContent("#modal h2")).includes(await p.evaluate(() => buttonName(0x40))));
     // variant 1 (active profile 2): "=", variant 2 (live profile 1): "7" (found, stops), then the check after restore: "="
     for (const key of ["=", "7", "="]) {
       await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 });
@@ -117,7 +121,7 @@ async function shot(p, name) {
     await p.click(`#modal:not(.hidden) button:has-text("${go5}")`); await p.waitForTimeout(200);
     await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 }); await p.waitForTimeout(100);
     await p.keyboard.press("Digit7"); await p.waitForTimeout(450);
-    check(`${lang}: self-test ran all steps`, (await p.evaluate(() => (window.__ST__.selftest || []).join(","))) === "sleep,targets,target_write:2f,target_write:2orig,target_write:1f,target_write:1orig,target_write:1hs_f,target_write:1hs_orig,target_write:1f,read_target,target_write:1orig",
+    check(`${lang}: self-test ran all steps`, (await p.evaluate(() => (window.__ST__.selftest || []).join(","))) === "buttons,sleep,select:64,targets,target_write:2f,target_write:2orig,target_write:1f,target_write:1orig,target_write:1hs_f,target_write:1hs_orig,target_write:1f,read_target,target_write:1orig",
       await p.evaluate(() => (window.__ST__.selftest || []).join(",")));
     check(`${lang}: self-test passed`, await p.evaluate(() => WL.test.stages.every((x) => x.ok)));
     check(`${lang}: Hypershift and off/on stages reported`, await p.evaluate(() => WL.test.stages[3].note === t("wl.t_hs_ok") && WL.test.stages[4].note === t("wl.t_persist_yes")), await p.evaluate(() => WL.test.stages[3].note + " | " + WL.test.stages[4].note));
@@ -294,6 +298,36 @@ async function shot(p, name) {
     check(`${lang}: no slot create/delete over Bluetooth`, (await p.$$(".onb .slot.missing")).length === 3 && !(await p.$(".onb .slot button.small")) && !(await p.$(".onb .slot button.icon")));
     await p.keyboard.press("Escape"); await p.waitForTimeout(100);
     check(`${lang}: Bluetooth without JavaScript errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  // Diagnostics (log) and Help fill the window: no window scroll bar, the log and the text scroll
+  {
+    const { p, errors } = await open(browser, "lang=ru");
+    for (const style of ["synapse", "classic"]) {
+      await p.evaluate((s) => applyStyle(s), style);
+      for (const [w, h] of [[1180, 760], [900, 600], [1400, 950]]) {
+        await p.setViewportSize({ width: w, height: h });
+        await p.evaluate(() => { showPage("diag"); showDiagView("log"); $("#log").textContent = Array.from({ length: 400 }, (_, i) => "line " + i).join("\n"); });
+        await p.waitForTimeout(150);
+        const d = await p.evaluate(() => { const pg = $("#pages"), lg = $("#log"), r = $("#btn-raw").getBoundingClientRect();
+          return { win: pg.scrollHeight - pg.clientHeight, log: lg.scrollHeight > lg.clientHeight, raw: r.bottom <= pg.getBoundingClientRect().bottom + 1, logh: lg.clientHeight }; });
+        check(`diag ${style} ${w}x${h}: no window scroll, the log scrolls, the command row is visible`, d.win <= 1 && d.log && d.raw && d.logh >= 150, JSON.stringify(d));
+        await p.evaluate(() => { showPage("help"); });
+        await p.waitForTimeout(250);
+        const hp = await p.evaluate(() => { const pg = $("#pages"), b = $("#help-body");
+          return { win: pg.scrollHeight - pg.clientHeight, text: b.scrollHeight > b.clientHeight, bottom: b.getBoundingClientRect().bottom <= pg.getBoundingClientRect().bottom + 1 }; });
+        check(`help ${style} ${w}x${h}: no window scroll, the text scrolls`, hp.win <= 1 && hp.text && hp.bottom, JSON.stringify(hp));
+        if (style === "synapse" && w === 1180) { await shot(p, "ru-help-fill"); await p.evaluate(() => showPage("diag")); await p.waitForTimeout(100); await shot(p, "ru-diag-fill"); }
+      }
+    }
+    // the wireless view and other pages scroll the window as before
+    await p.setViewportSize({ width: 1180, height: 760 });
+    await p.evaluate(() => { applyStyle("synapse"); showPage("diag"); showDiagView("wl"); });
+    await p.waitForTimeout(150);
+    check("wireless view: window scroll as before", !(await p.evaluate(() => $("#pages").classList.contains("fill"))));
+    await p.evaluate(() => showPage("settings")); await p.waitForTimeout(100);
+    check("settings: window scroll as before", !(await p.evaluate(() => $("#pages").classList.contains("fill"))));
+    check("fill layout without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
     await p.context().close();
   }
   // Linux: an access rule of an older version is offered for update once; Settings shows its state

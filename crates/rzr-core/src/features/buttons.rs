@@ -18,9 +18,15 @@ pub struct ButtonInfo {
 impl RazerMouse {
     /// On-board profiles (always at least [1]).
     pub fn list_profiles(&mut self) -> Vec<u8> {
+        self.read_profile_list().unwrap_or_else(|| vec![1])
+    }
+
+    /// The on-board slots as the mouse reports them; `None` when it cannot tell (no profile
+    /// support, or the list could not be read) — unlike `list_profiles`, never a guess.
+    pub fn read_profile_list(&mut self) -> Option<Vec<u8>> {
         // over Bluetooth the list is read too (03 80), though slots cannot be created there
         if !self.has(feat::PROFILES) && !self.ble {
-            return vec![1];
+            return None;
         }
         let r = (|| -> Result<Vec<u8>> {
             let n = self.req(cmd::GET_PROFILE_COUNT, &[], Some(1))?[0] as usize;
@@ -28,8 +34,12 @@ impl RazerMouse {
             Ok(a[1..1 + n.min(79)].iter().copied().filter(|p| *p != 0).collect())
         })();
         match r {
-            Ok(v) if !v.is_empty() => v,
-            _ => vec![1],
+            Ok(v) if !v.is_empty() => Some(v),
+            Ok(_) => None,
+            Err(e) => {
+                log_debug!("device", "profile list not read: {e}");
+                None
+            }
         }
     }
 

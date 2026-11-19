@@ -38,6 +38,10 @@ The status is the same as over USB (`02` OK, `03` failed, `05` not supported); n
 
 Writes: a button binding is `08 04` (sub `<slot> <button>`) with the data `<slot> <button> <layer> <action, 7 bytes>` (layer `00` normal, `01` Hypershift) — the format the OpenSnek project found on Basilisk mice; the sleep timer is `05 04` with the seconds. **Diagnostics → Wireless → Write self-test** checks both on your mouse, and whether a binding stays after the mouse is switched off and on.
 
+The self-test uses one button of your mouse: side button 12 on a Naga Pro with the 12-button plate, otherwise another side key, Back/Forward or the middle button — you can choose it before the start. Left and right button, the wheel and the profile button are never changed.
+
+Checked on a Naga Pro: both layers (layer byte `01` is Hypershift) and the sleep timer are written over Bluetooth, and a binding written into a slot stays after the mouse is switched off and on.
+
 - **Read what is known** — asks those four and shows what they mean.
 - **Class / Command / Sub → Read** — one request.
 - **Try every command** — every class × command × sub of the ranges given (for example classes `00-1f`, commands `80-9f`). Only “get” commands (command `80`–`FF`) are sent: nothing in the mouse changes. “Not supported” replies are hidden unless you want them.
