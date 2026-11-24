@@ -576,3 +576,39 @@ body.read-only :is(#page-perf, #page-power, #page-lighting) .needs-mouse:not(.bl
 #btn-view.on { border-color: var(--accent, #44d62c); color: var(--accent, #44d62c); }
 .onb .slot.missing { opacity: .8; }
 .onb .slot button.small, .notice button.small { padding: 3px 10px; font-size: 12px; }
+.keyboard-preview {
+  --key-color: #38d991;
+  display: grid;
+  gap: 4px;
+  max-width: 960px;
+  padding: clamp(6px, 1.5vw, 16px);
+  margin-bottom: 16px;
+  background: #14171a;
+  border: 1px solid #454b51;
+  border-radius: 10px;
+}
+.keyboard-row {
+  display: flex;
+  gap: 3px;
+}
+.keyboard-key, .keyboard-gap {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.keyboard-key {
+  display: grid;
+  place-items: center;
+  height: clamp(19px, 3vw, 34px);
+  overflow: hidden;
+  background: #20252a;
+  color: #f0f2f4;
+  border: 1px solid var(--key-color);
+  border-radius: 4px;
+  font-size: clamp(6px, 1vw, 11px);
+}
+.keyboard-rainbow .keyboard-key:nth-child(3n) { --key-color: #ba83ff; }
+.keyboard-key:disabled { opacity: 1; }
+.keyboard-key { padding: 0; }
+.keyboard-rainbow .keyboard-key:nth-child(3n + 1) { --key-color: #43c3ff; }
+.keyboard-dark .keyboard-key { border-color: #555e66; }
+.keyboard-preview.hidden { display: none; }

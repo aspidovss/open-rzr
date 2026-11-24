@@ -10,7 +10,12 @@ impl RazerMouse {
         if !self.zone_effects(zone).contains(&st.effect.as_str()) {
             return Err(Error::Unsupported(format!("effect {} is not available for zone {zone}", st.effect)));
         }
-        let packets = lighting::zone_commands_led(zone, z.led, st).map_err(Error::Invalid)?;
+        let packets = if self.spec.pid == crate::devices::BLACKWIDOW_V3_PRO_USB && zone == "backlight" && st.effect == "custom" {
+            lighting::blackwidow_frame(&st.leds)
+        } else {
+            lighting::zone_commands_led(zone, z.led, st)
+        }
+        .map_err(Error::Invalid)?;
         self.op(format!("set_lighting {zone}: {} {}", st.effect, lighting::hex_color(st.color1)), |m| {
             for (c, a, s) in &packets {
                 m.req(*c, a, Some(*s))?;

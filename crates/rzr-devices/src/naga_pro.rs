@@ -130,6 +130,7 @@ const VIA_OPENRAZER: u32 = feat::FIRMWARE
     | feat::LIGHTING;
 
 const BASE: DeviceSpec = DeviceSpec {
+    keyboard: false,
     pid: 0x008F,
     name: "Razer Naga Pro (wired)",
     source: Source::Verified,

@@ -32,13 +32,13 @@ function check(name, ok, detail = "") {
   if (!ok) failed++;
 }
 
-async function open(browser, query) {
+async function open(browser, query, ready = "#fig .lbl") {
   const errors = [];
   const p = await (await browser.newContext({ viewport: { width: 1200, height: 860 } })).newPage();
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await p.goto(page + "?" + query);
-  await p.waitForFunction(() => document.querySelectorAll("#fig .lbl").length > 5, null, { timeout: 15000 });
+  await p.waitForFunction((selector) => document.querySelectorAll(selector).length > 5, ready, { timeout: 15000 });
   return { p, errors };
 }
 
@@ -394,6 +394,26 @@ async function shot(p, name) {
     check("version compare: four numbers", await p.evaluate(() => newerVersion("0.8.2", "0.8.1.9") && !newerVersion("0.8.1", "0.8.1.0") && optionalOnly("v0.8.1.3", "0.8.1.1") && !optionalOnly("0.9.0.0", "0.8.1.1")));
     await shot(p, "ru-updates-optional");
     check("optional updates without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+    await p.context().close();
+  }
+  {
+    const { p, errors } = await open(browser, "lang=en&keyboard", "#keyboard-preview .keyboard-key");
+    await p.click('#nav button[data-page="lighting"]');
+    check("keyboard lighting has a key layout", await p.isVisible("#keyboard-preview"));
+    await p.click("#btn-light-off");
+    await p.waitForFunction(() => window.__ST__.saved.backlight?.effect === "off");
+    check("keyboard preview reflects off", await p.isVisible("#keyboard-preview.keyboard-dark"));
+    await p.selectOption('#zones [data-zone="backlight"] .eff', "custom");
+    await p.click('#keyboard-preview [data-cell="67"]'); // A: row 3, column 1
+    await p.click("#btn-light-all");
+    await p.waitForFunction(() => window.__ST__.saved.backlight?.effect === "custom");
+    check("keyboard sends separate colors in matrix order", await p.evaluate(() => {
+      const colors = window.__ST__.saved.backlight.leds;
+      return colors.length === 132 && colors[67].join() === "0,255,128" && colors[68].join() === "0,0,0";
+    }));
+    await p.click('#tabs button[data-tab="macros"]');
+    check("keyboard macro library has no device writes", await p.isVisible("#btn-msave") && !(await p.isVisible("#btn-mwrite")));
+    check("keyboard without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
     await p.context().close();
   }
   // declining the agreement closes the program

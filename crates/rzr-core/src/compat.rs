@@ -168,7 +168,14 @@ pub fn bound_devices(root: &Path) -> Vec<(u16, PathBuf)> {
 }
 
 pub fn sysfs_dir(pid: u16) -> Option<PathBuf> {
-    bound_devices(&sysfs_root()).into_iter().find(|(p, _)| *p == pid).map(|(_, d)| d)
+    let root = if std::env::var_os("OPENRZR_OPENRAZER_SYSFS").is_none()
+        && crate::devices::spec_for(pid).is_some_and(|spec| spec.keyboard)
+    {
+        PathBuf::from("/sys/bus/hid/drivers/razerkbd")
+    } else {
+        sysfs_root()
+    };
+    bound_devices(&root).into_iter().find(|(p, _)| *p == pid).map(|(_, d)| d)
 }
 
 pub fn daemon_running() -> bool {

@@ -106,6 +106,9 @@ impl RazerMouse {
     /// commands of the Naga Pro. Ask with read-only requests; what answers is turned on and
     /// recorded in `experimental`.
     pub fn probe(&mut self) {
+        if self.spec.keyboard {
+            return;
+        }
         if !matches!(self.spec.source, devices::Source::OpenRazer | devices::Source::User) || !devices::generic::may_have_onboard(self.spec.transaction_id) {
             return;
         }
@@ -231,7 +234,15 @@ impl RazerMouse {
 
     /// Raw request, returns the 80 argument bytes.
     pub fn req(&mut self, c: u16, args: &[u8], size: Option<u8>) -> Result<[u8; 80]> {
-        Ok(self.ch.request(c, args, size)?.arguments)
+        let tid = self.ch.tid;
+        if self.spec.keyboard && c == crate::protocol::cmd::GET_FIRMWARE {
+            self.ch.tid = 0xFF;
+        } else if self.spec.pid == devices::BLACKWIDOW_V3_PRO_USB && c == crate::protocol::cmd::SET_FRAME {
+            self.ch.tid = 0x1F;
+        }
+        let result = self.ch.request(c, args, size);
+        self.ch.tid = tid;
+        Ok(result?.arguments)
     }
 
     /// Log a write-type operation with its duration and result.

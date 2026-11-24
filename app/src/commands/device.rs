@@ -59,6 +59,7 @@ pub(crate) async fn list_devices(st: State<'_, AppState>) -> R<Vec<DeviceGroup>>
 
 #[derive(Serialize, Default)]
 pub(crate) struct ConnectInfo {
+    pub(crate) keyboard: bool,
     pub(crate) name: String,
     pub(crate) pid: u16,
     pub(crate) path: String,
@@ -116,6 +117,7 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
         }
     })?;
     let mut ci = ConnectInfo {
+        keyboard: m.spec.keyboard,
         name: m.name().into(),
         pid: m.info.pid,
         path: m.info.path.clone(),
@@ -147,7 +149,7 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
     ci.idle = m.get_idle_time().ok();
     ci.low = m.get_low_battery_threshold().ok();
     let slots = m.read_profile_list();
-    ci.profiles = slots.clone().unwrap_or_else(|| vec![1]);
+    ci.profiles = slots.clone().unwrap_or_else(|| if ci.keyboard { vec![] } else { vec![1] });
     ci.side_plates = m.spec.side_plates && m.has(feat::SIDE_PLATE);
     if ci.side_plates {
         ci.plate = m.side_plate().unwrap_or_else(|e| {

@@ -177,6 +177,23 @@ pub fn zone_commands(zone: &str, st: &ZoneState) -> Result<Vec<Packet>, String> 
     zone_commands_led(zone, zone_led(zone), st)
 }
 
+/// Full BlackWidow V3 Pro frame, followed by the command that displays it.
+pub(crate) fn blackwidow_frame(colors: &[Rgb]) -> Result<Vec<Packet>, String> {
+    const ROWS: usize = 6;
+    const COLS: usize = 22;
+    if colors.len() != ROWS * COLS {
+        return Err(format!("expected {} keyboard matrix colors", ROWS * COLS));
+    }
+    let mut packets = Vec::with_capacity(ROWS + 1);
+    for (row, colors) in colors.chunks_exact(COLS).enumerate() {
+        let mut args = vec![0, 0, row as u8, 0, (COLS - 1) as u8];
+        args.extend(colors.iter().flatten().copied());
+        packets.push((cmd::SET_FRAME, args, 0x47));
+    }
+    packets.push((cmd::SET_EFFECT, vec![0, 0, 0x08], 0x0C));
+    Ok(packets)
+}
+
 /// Packets for a zone with LED id `led`. "side" is the Naga Pro side panel (1×3 matrix).
 pub fn zone_commands_led(zone: &str, led: u8, st: &ZoneState) -> Result<Vec<Packet>, String> {
     match zone {
@@ -211,6 +228,19 @@ pub fn brightness_led_of(zone: &str, led: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn blackwidow_frame_uses_matrix_coordinates() -> Result<(), String> {
+        let mut colors = [[0; 3]; 132];
+        colors[67] = [10, 20, 30];
+        let packets = super::blackwidow_frame(&colors)?;
+        assert_eq!(packets.len(), 7);
+        let (command, args, size) = &packets[3];
+        assert_eq!((*command, *size), (super::cmd::SET_FRAME, 0x47));
+        assert_eq!(&args[..11], &[0, 0, 3, 0, 21, 0, 0, 0, 10, 20, 30]);
+        assert_eq!(packets[6], (super::cmd::SET_EFFECT, vec![0, 0, 8], 0x0C));
+        assert!(super::blackwidow_frame(&colors[..131]).is_err());
+        Ok(())
+    }
     use super::*;
 
     fn hex(v: &[u8]) -> String {

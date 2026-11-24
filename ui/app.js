@@ -501,7 +501,7 @@ async function connect(i) {
     c.pid = g.pid;
     S.conn = c;
     setConnected();
-    S.names = (await quiet(api.call("button_names"))) || {};
+    S.names = c.keyboard ? {} : (await quiet(api.call("button_names"))) || {};
     loadDevice(c);
     applyFeatures();
     loadPerf(c);
@@ -509,7 +509,7 @@ async function connect(i) {
     buildZones();
     S.profiles = null; S.profile = null; S.defaults = {};
     $("#tab-device-name").textContent = shortName(deviceName(c.pid || 0, c.name));
-    if (has("macros")) await quiet(refreshMacros());
+    if (has("macros") || c.keyboard) await quiet(refreshMacros());
     if (has("buttons")) await loadProfiles();
     if (c.lighting.length) await quiet(loadLighting());
     await quiet(checkOpenRazer());
@@ -538,15 +538,18 @@ function applyFeatures() {
     power: ["idle", "low_battery"], lighting: ["lighting"],
   };
   for (const [p, fs] of Object.entries(page)) {
-    const on = !c || fs.some(has) && (p !== "lighting" || c.lighting.length > 0);
+    const on = !c || (p === "macros" && c.keyboard) || fs.some(has) && (p !== "lighting" || c.lighting.length > 0);
     const b = $(`#nav button[data-page="${p}"]`) || $(`#tabs button[data-tab="${p}"]`);
     if (b) b.classList.toggle("off", !on);
   }
+  $("#mouse-box").classList.toggle("hidden", !!c?.keyboard);
+  $("#btn-mwrite").classList.toggle("hidden", !!c?.keyboard);
+  $("#keyboard-macro-note").classList.toggle("hidden", !c?.keyboard);
   $$("[data-feat]").forEach((e) => e.classList.toggle("hidden", !!c && !has(e.dataset.feat)));
   $("#btn-dpi").closest(".row").classList.toggle("hidden", !!c && !has("dpi_stages"));
   const cur = currentPage();
   const btn = $(`#nav button[data-page="${cur}"]`) || $(`#tabs button[data-tab="${cur}"]`);
-  if (btn && btn.classList.contains("off")) showPage(c && c.features.includes("buttons") ? "buttons" : "device");
+  if (btn && btn.classList.contains("off")) showPage(c?.keyboard ? "lighting" : has("buttons") ? "buttons" : "device");
 }
 
 // ------------------------------------------------------------------ USB notifications
@@ -1122,7 +1125,8 @@ function loadDevice(c) {
     [t("device.module"), c.verified ? t("device.module_verified") : c.source === "family" ? t("device.module_family") : c.source === "user" ? t("device.module_user") : t("device.module_db")],
     [t("device.via"), c.read_only ? t("device.via_ble") : c.openrazer ? t("device.via_or") : t("device.via_hid")],
     [t("device.conn"), c.bluetooth ? t("device.bluetooth") : c.wireless ? t("device.wireless") : t("device.wired")],
-    [t("device.fw"), c.firmware], [t("device.serial"), c.serial || "—"], [t("device.profiles"), c.profiles.join(", ")],
+    [t("device.fw"), c.firmware], [t("device.serial"), c.serial || "—"],
+    ...(c.keyboard ? [] : [[t("device.profiles"), c.profiles.join(", ")]]),
     ...(c.side_plates ? [[t("device.plate"), plateText(S.plate ?? c.plate)]] : []),
     [t("device.path"), c.path]];
   for (const [k, v] of rows) kv.append(el("dt", { text: k }), el("dd", { text: v }));
@@ -1577,6 +1581,7 @@ async function deleteProfile() {
 
 /** The on-board profile the mouse uses now (it switches with its profile button). */
 async function checkActive() {
+  if (S.conn?.keyboard) { drawActive(); return; }
   if (!S.conn || S.busy || document.visibilityState !== "visible") return;
   const a = await quiet(api.call("active_slot"));
   if (a === undefined || a === S.active) return;
@@ -2490,7 +2495,7 @@ async function refreshMacros() {
   drawLib();
   M.status = (await quiet(api.call("program_actions_status"))) || null;
   drawSoftStatus();
-  if (!S.conn) return;
+  if (!has("macros")) return;
   const r = await run("macros_on_mouse");
   S.onMouse = r.macros;
   drawMouseMacros(r.flash);
@@ -3152,9 +3157,10 @@ function zoneEffects(zone) {
 
 function zoneCard(zone) {
   const T = S.tables;
+  const perKey = S.conn?.keyboard && zone === "backlight" && zoneEffects(zone).includes("custom");
   const card = el("div", { class: "card zone", "data-zone": zone });
   const eff = el("select", { class: "eff" });
-  fillSelect(eff, zoneEffects(zone).map((e) => [e, t("effect." + e)]));
+  fillSelect(eff, zoneEffects(zone).map((e) => [e, t(perKey && e === "custom" ? "light.per_key" : "effect." + e)]));
   const c1 = el("input", { type: "color", class: "c1", value: "#00ff80" });
   const c2 = el("input", { type: "color", class: "c2", value: "#0040ff" });
   const leds = [0, 1, 2].map((i) => el("input", { type: "color", class: "led", value: ["#ff0000", "#00ff00", "#0000ff"][i] }));
@@ -3166,6 +3172,9 @@ function zoneCard(zone) {
   const prev = el("div", { class: "preview" });
   const rColors = el("div", { class: "row" }, c1, c2);
   const rLeds = el("div", { class: "row" }, ...leds.flatMap((l, i) => [el("span", { class: "muted", text: i + 1 }), l]));
+  const paint = el("input", { type: "color", value: "#00ff80", "aria-label": t("light.key_color") });
+  const keyEditor = el("label", { class: "row hidden", text: t("light.key_color") }, paint);
+  let keyColors = Array.from({ length: 6 * 22 }, () => [0, 0, 0]);
   const lc = el("label", { text: t("light.colors") }), ll = el("label", { text: t("light.leds") }), ls = el("label", { text: t("light.afterglow") });
   const grid = el("div", { class: "grid" },
     el("label", { text: t("light.effect") }), eff, lc, rColors, ll, rLeds, ls, speed,
@@ -3174,26 +3183,34 @@ function zoneCard(zone) {
     const e = eff.value;
     const n = { static: 1, breath_single: 1, reactive: 1, breath_dual: 2 }[e] || 0;
     lc.classList.toggle("hidden", !n); rColors.classList.toggle("hidden", !n); c2.classList.toggle("hidden", n < 2);
-    ll.classList.toggle("hidden", e !== "custom"); rLeds.classList.toggle("hidden", e !== "custom");
+    ll.classList.toggle("hidden", perKey || e !== "custom"); rLeds.classList.toggle("hidden", perKey || e !== "custom");
+    keyEditor.classList.toggle("hidden", !perKey || e !== "custom");
     ls.classList.toggle("hidden", e !== "reactive"); speed.classList.toggle("hidden", e !== "reactive");
     const rainbow = "linear-gradient(90deg,#f00,#0f0,#00f,#f0f)";
+    prev.classList.toggle("hidden", perKey && e === "custom");
     prev.style.background = e === "off" ? "#000" : e === "custom" ? `linear-gradient(90deg,${leds.map((l) => l.value).join(",")})`
       : ["spectrum", "wave", "breath_random"].includes(e) ? rainbow
       : e === "breath_dual" ? `linear-gradient(90deg,${c1.value},${c2.value})` : c1.value;
   };
-  [eff, c1, c2, ...leds].forEach((x) => x.addEventListener("input", ui));
+  [eff, c1, c2, ...leds].forEach((x) => x.addEventListener("input", () => { ui(); updateKeyboardPreview(); }));
+  if (perKey) br.addEventListener("input", updateKeyboardPreview);
   eff.addEventListener("change", ui);
   ui();
   card.append(el("div", { class: "row" }, el("div", { class: "card-title", text: t("zone." + zone) }), el("span", { class: "grow" }), prev),
-    grid, el("div", { class: "row" }, el("span", { class: "grow" }),
+    grid, keyEditor, el("div", { class: "row" }, el("span", { class: "grow" }),
       el("button", { class: "primary", text: t("common.apply"), onclick: () => applyZone(zone) })));
   card._get = () => ({ effect: eff.value, color1: hexRgb(c1.value), color2: hexRgb(c2.value), speed: +speed.value,
-    brightness: +br.value, leds: leds.map((l) => hexRgb(l.value)) });
+    brightness: +br.value, leds: perKey ? keyColors : leds.map((l) => hexRgb(l.value)) });
+  if (perKey) card._paint = (index) => {
+    keyColors = keyColors.map((color, i) => i === index ? hexRgb(paint.value) : color);
+    updateKeyboardPreview();
+  };
   card._set = (s) => {
     if (s.effect && [...eff.options].some((o) => o.value === s.effect)) eff.value = s.effect;
     if (s.color1) c1.value = rgbHex(s.color1);
     if (s.color2) c2.value = rgbHex(s.color2);
-    if (s.leds) s.leds.forEach((c, i) => { if (leds[i]) leds[i].value = rgbHex(c); });
+    if (perKey && s.leds?.length === 6 * 22) keyColors = s.leds;
+    if (!perKey && s.leds) s.leds.forEach((c, i) => { if (leds[i]) leds[i].value = rgbHex(c); });
     if (s.speed) speed.value = String(s.speed);
     if (s.brightness != null) { br.value = s.brightness; brv.textContent = s.brightness + "%"; }
     ui();
@@ -3215,6 +3232,64 @@ function buildZones() {
     if (S.conn) c.classList.toggle("hidden", !S.conn.lighting.includes(z));
     box.append(c);
   }
+  drawKeyboardPreview();
+}
+
+function drawKeyboardPreview() {
+  const preview = $("#keyboard-preview");
+  preview.replaceChildren();
+  preview.classList.toggle("hidden", !S.conn?.keyboard);
+  if (!S.conn?.keyboard) return;
+  preview.setAttribute("aria-label", S.conn.name);
+  const rows = [
+    "Esc _ F1 F2 F3 F4 _ F5 F6 F7 F8 _ F9 F10 F11 F12 _ PrtSc ScrLk Pause _ ◀ ⏯ ▶ ♪",
+    "` 1 2 3 4 5 6 7 8 9 0 - = Backspace:2 _ Ins Home PgUp _ Num / * -",
+    "Tab:1.5 Q W E R T Y U I O P [ ] \\:1.5 _ Del End PgDn _ 7 8 9 +",
+    "Caps:1.75 A S D F G H J K L ; ' Enter:2.25 Logo _:3 4 5 6 _",
+    "Shift:2.25 Z X C V B N M , . / Shift:2.75 _:2 ↑ _:1 _ 1 2 3 ↵",
+    "Ctrl:1.25 Win:1.25 Alt:1.25 Space:6.25 Alt:1.25 Fn:1.25 Menu:1.25 Ctrl:1.25 _ ← ↓ → _ 0:2 . _",
+  ];
+  // ANSI physical keys in display order, mapped to the 6×22 BlackWidow V3 Pro matrix.
+  const columns = [
+    [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21],
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 17, 18, 19],
+    [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 18, 19, 20],
+    [0, 1, 2, 6, 10, 11, 12, 13, 14, 15, 16, 18, 19],
+  ];
+  rows.forEach((labels, y) => {
+    const row = el("div", { class: "keyboard-row" });
+    let x = 0;
+    for (const key of labels.split(" ")) {
+      const [label, width = "1"] = key.split(":");
+      const isGap = label === "_";
+      const cap = isGap ? el("span", { class: "keyboard-gap" }) : el("button", {
+        class: "keyboard-key", type: "button", text: label, "data-cell": y * 22 + columns[y][x++],
+        onclick: () => $('#zones [data-zone="backlight"]')?._paint?.(+cap.dataset.cell),
+      });
+      cap.style.flexBasis = `${Number(width) * 100 / 24}%`;
+      row.append(cap);
+    }
+    preview.append(row);
+  });
+  updateKeyboardPreview();
+}
+
+function updateKeyboardPreview() {
+  if (!S.conn?.keyboard) return;
+  const state = $('#zones [data-zone="backlight"]')?._get();
+  if (!state) return;
+  const preview = $("#keyboard-preview");
+  const solid = ["static", "reactive"].includes(state.effect);
+  preview.style.setProperty("--key-color", solid ? rgbHex(state.color1) : "");
+  preview.classList.toggle("keyboard-dark", state.effect === "off" || state.brightness === 0);
+  preview.classList.toggle("keyboard-rainbow", ["spectrum", "wave"].includes(state.effect));
+  for (const key of preview.querySelectorAll(".keyboard-key")) {
+    const color = state.effect === "custom" && state.leds[+key.dataset.cell];
+    key.disabled = !color;
+    key.style.setProperty("--key-color", color ? rgbHex(color) : "");
+  }
 }
 
 async function loadLighting() {
@@ -3223,12 +3298,15 @@ async function loadLighting() {
   const r = await run("get_lighting");
   for (const [z, st] of Object.entries(r.saved || {})) { const c = $(`#zones [data-zone="${z}"]`); if (c) c._set(st); }
   for (const [z, v] of Object.entries(r.brightness || {})) { const c = $(`#zones [data-zone="${z}"]`); if (c) c._setBrightness(v); }
+  updateKeyboardPreview();
 }
 
 async function sendLighting(targets) {
   if (!needMouse() || !targets.length) return;
   const zones = targets.map(([z]) => t("zone." + z)).join(", ");
-  await run("set_lighting", { targets }, t("light.done", { zones, effect: t("effect." + targets[0][1].effect) }));
+  const effect = targets[0][1].effect;
+  await run("set_lighting", { targets }, t("light.done", { zones, effect: t(S.conn.keyboard && effect === "custom" ? "light.per_key" : "effect." + effect) }));
+  updateKeyboardPreview();
 }
 
 async function applyZone(zone) {

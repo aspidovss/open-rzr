@@ -29,6 +29,9 @@ pub fn rule_text() -> String {
             "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", ATTRS{{idVendor}}==\"{:04x}\", ATTRS{{idProduct}}==\"{:04x}\", TAG+=\"uaccess\"\n",
             RAZER_VID, d.pid
         );
+        if d.keyboard {
+            continue;
+        }
         s += &format!(
             "KERNEL==\"event*\", SUBSYSTEM==\"input\", ATTRS{{idVendor}}==\"{:04x}\", ATTRS{{idProduct}}==\"{:04x}\", TAG+=\"uaccess\"\n",
             RAZER_VID, d.pid

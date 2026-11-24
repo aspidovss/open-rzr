@@ -140,6 +140,7 @@ pub struct Zone {
 
 #[derive(Debug, Clone)]
 pub struct DeviceSpec {
+    pub keyboard: bool,
     pub pid: u16,
     pub name: &'static str,
     pub source: Source,
@@ -172,6 +173,7 @@ pub struct DeviceSpec {
 
 /// Common values of generated OpenRazer entries.
 pub const OPENRAZER_BASE: DeviceSpec = DeviceSpec {
+    keyboard: false,
     pid: 0,
     name: "",
     source: Source::OpenRazer,
@@ -194,7 +196,29 @@ pub const OPENRAZER_BASE: DeviceSpec = DeviceSpec {
 };
 
 /// Hand-written device modules, checked before the OpenRazer database.
-pub static MODULES: &[&[DeviceSpec]] = &[naga_pro::DEVICES, naga_pro::BLUETOOTH, naga_pro::FAMILY];
+pub static MODULES: &[&[DeviceSpec]] = &[naga_pro::DEVICES, naga_pro::BLUETOOTH, naga_pro::FAMILY, KEYBOARDS];
+
+// USB identifiers and extended lighting commands from OpenRazer's razerkbd driver.
+pub const BLACKWIDOW_V3_PRO_USB: u16 = 0x025A;
+
+const KEYBOARDS: &[DeviceSpec] = &[DeviceSpec {
+    keyboard: true,
+    pid: BLACKWIDOW_V3_PRO_USB,
+    name: "Razer BlackWidow V3 Pro (wired)",
+    transaction_id: 0x3F,
+    interface: 2,
+    buttons: &[],
+    defaults: |_| None,
+    direct: feat::FIRMWARE | feat::LIGHTING,
+    zones: &[Zone {
+        id: "backlight",
+        led: 0x05,
+        effects: fx::OFF | fx::STATIC | fx::SPECTRUM | fx::WAVE | fx::REACTIVE | fx::CUSTOM,
+        direct: true,
+        openrazer: true,
+    }],
+    ..OPENRAZER_BASE
+}];
 
 impl DeviceSpec {
     pub fn zone(&self, id: &str) -> Option<&'static Zone> {

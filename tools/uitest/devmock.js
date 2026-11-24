@@ -104,6 +104,12 @@
     if (err) return { ok: false, error: err, steps: 0, size: 0, ms: 0, trigger: "", lines, flat: [] };
     return { ok: true, error: "", steps: flat.length, size, ms: flat.filter((s) => s.kind === "delay").reduce((a, s) => a + s.value, 0), trigger: trigger || "", lines, flat };
   };
+  const keyboard = new URLSearchParams(location.search).has("keyboard") && {
+    name: "Razer BlackWidow V3 Pro (wired)", pid: 0x025a, path: "mock-keyboard",
+    keyboard: true, firmware: "v1.0", source: "openrazer",
+    features: ["firmware", "lighting"], lighting: ["backlight"], profiles: [],
+    zone_effects: { backlight: ["off", "static", "spectrum", "wave", "reactive", "custom"] },
+  };
   const H = {
     app_info: () => ({ version: "0.8.1.1", hotplug: true, os: window.__OS__ || "windows", log_file: "C:\\Users\\us\\AppData\\Roaming\\open-rzr\\logs\\open-rzr.log", config_dir: "x", mock: true, log_level: "DEBUG", openrazer_db: "477f4d6 2026-10-05", db_models: 117 }),
     tables: () => ({
@@ -120,6 +126,7 @@
     }),
     list_devices: () => st.devicesGone ? [] : st.db ? [{ label: "Razer Basilisk V3", pid: 0x99, candidates: [{ path: "/dev/hidraw3", vid: 0x1532, pid: 0x99, interface: 0, name: "Razer Basilisk V3", backend: "hidraw", usage_page: 0, usage: 0 }] }] : [{ label: "Razer Naga Pro (кабель)", pid: 0x8f, candidates: [{ path: "\\\\?\\hid#vid_1532&pid_008f&mi_00", vid: 0x1532, pid: 0x8f, interface: 0, name: "Razer Naga Pro", backend: "hidapi", usage_page: 1, usage: 2 }] }],
     connect: ({ candidates }) => { if (!Array.isArray(candidates) || !candidates[0].path) throw "bad candidates"; log("device", "подключено");
+      if (keyboard) return keyboard;
       const ALLF = ["firmware", "serial", "dpi", "dpi_stages", "polling", "battery", "charging", "idle", "low_battery", "lighting", "buttons", "macros", "profiles", "side_plate"];
       const ZE = { scroll: ["off", "static", "spectrum", "wave", "breath_single", "breath_dual", "breath_random", "reactive"], logo: ["off", "static", "spectrum", "wave", "breath_single", "breath_dual", "breath_random", "reactive"], side: ["off", "static", "custom", "spectrum", "breath_single", "breath_dual", "breath_random", "reactive"] };
       if (window.__BLE__) return { name: "Razer Naga Pro (Bluetooth)", pid: 0x92, path: candidates[0].path, verified: false, source: "family", experimental: [], features: ["firmware", "serial", "dpi", "dpi_stages", "battery", "charging", "idle", "low_battery", "lighting", "buttons"], writable: ["buttons", "idle"], openrazer: null,
@@ -170,7 +177,7 @@
     program_actions_status: () => ({ status: { supported: true, active: true, note: "1 trigger keys" }, bound: Object.entries(st.lib).filter(([, m]) => m.trigger).map(([n, m]) => [m.trigger, n]) }),
     profile_layer: ({ id, op }) => { const p = st.lib2[id]; let n = 0; for (const b of Object.values(p.buttons)) { if (b.normal.kind === "hypershift") continue; b.hypershift = op === "copy" ? clone(b.normal) : A({ kind: "disabled" }); n++; } return n; },
     get_lighting: () => ({ saved: st.saved, brightness: st.bright }),
-    set_lighting: ({ targets }) => { for (const [z, s] of targets) { if (!Array.isArray(s.color1) || s.leds.length !== 3) throw "zone state"; st.saved[z] = s; st.bright[z] = s.brightness; } return null; },
+    set_lighting: ({ targets }) => { for (const [z, s] of targets) { if (!Array.isArray(s.color1) || s.leds.length !== (keyboard ? 132 : 3)) throw "zone state"; st.saved[z] = s; st.bright[z] = s.brightness; } return null; },
     backup: () => "C:\\Users\\us\\AppData\\Roaming\\open-rzr\\backups\\naga-1.json",
     list_backups: () => [{ name: "naga-1.json", path: "C:\\x\\naga-1.json", size: 20480 }],
     restore: ({ path }) => 120,
@@ -287,6 +294,9 @@
       { pid: 0x99, name: "Razer Basilisk V3", verified: false, direct: ["firmware", "dpi", "polling", "lighting"], openrazer: [] },
       { pid: 0x96, name: "Razer Naga X", verified: false, direct: ["firmware", "dpi"], openrazer: ["serial", "dpi_stages"] }],
   };
+  if (keyboard) H.list_devices = () => [{
+    pid: keyboard.pid, label: keyboard.name, candidates: [{ pid: keyboard.pid, path: keyboard.path }],
+  }];
   const listeners = {};
   window.__EMIT__ = (name, payload) => (listeners[name] || []).forEach((f) => f({ payload }));
   window.__TAURI__ = { event: { listen: async (name, f) => { (listeners[name] = listeners[name] || []).push(f); return () => {}; } }, core: { invoke: async (cmd, args) => {
