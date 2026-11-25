@@ -30,7 +30,8 @@ cargo test -p rzr-protocol -p rzr-hal -p rzr-devices -p rzr-core -p rzr-cli --re
 Step "build open-rzr.exe + open-rzr-cli.exe + orzr-cli.exe"
 cargo build --release -p rzr-cli -p open-rzr; Check
 
-$ver = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+$cargoVersion = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+$ver = $cargoVersion
 # four numbers in file names: Cargo keeps the fourth as build metadata ("0.8.1+1" -> "0.8.1.1")
 if ($ver -match '\+') { $ver = $ver -replace '\+', '.' } else { $ver = "$ver.0" }
 Step "smoke test $ver"
@@ -57,10 +58,10 @@ if ($Installer) {
   cargo tauri build --bundles nsis; $code = $LASTEXITCODE
   Pop-Location
   if ($code -ne 0) { throw "tauri build failed" }
-  Get-ChildItem target\release\bundle\nsis\*.exe | ForEach-Object {
-    Copy-Item $_.FullName "dist\open-rzr-$ver-windows-x64-setup.exe" -Force
-    Write-Host "Installer: dist\open-rzr-$ver-windows-x64-setup.exe"
-  }
+  $bundle = "target\release\bundle\nsis\open-rzr_${cargoVersion}_x64-setup.exe"
+  $installerPath = "dist\open-rzr-$ver-windows-x64-setup.exe"
+  Copy-Item -LiteralPath $bundle -Destination $installerPath -Force
+  Write-Host "Installer: $installerPath"
 }
 
 # Collect the list first: hashing while Set-Content writes SHA256SUMS.txt in the same pipeline locks the file.

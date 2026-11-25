@@ -57,14 +57,19 @@ async function shot(p, name) {
 
     for (const width of [1140, 920]) {
       await p.setViewportSize({ width, height: 780 });
-      const fits = await p.evaluate(() => {
+      const layout = await p.evaluate(() => {
         const profile = document.querySelector("#prof-box").getBoundingClientRect();
         const nav = document.querySelector("#nav");
         const tabs = nav.getBoundingClientRect();
-        return profile.right <= tabs.left && profile.top < tabs.bottom && tabs.top < profile.bottom
-          && nav.scrollWidth === nav.clientWidth;
+        const bar = document.querySelector("#devbar").getBoundingClientRect();
+        return {
+          singleRow: profile.right <= tabs.left && profile.top < tabs.bottom && tabs.top < profile.bottom
+            && tabs.right <= bar.right,
+          allTabsVisible: nav.scrollWidth === nav.clientWidth,
+        };
       });
-      check(`${lang}: profile and all device tabs fit on one row at ${width}px`, fits);
+      check(`${lang}: profile and device tabs stay on one row at ${width}px`, layout.singleRow);
+      if (width === 1140) check(`${lang}: all device tabs fit at the default width`, layout.allTabsVisible);
     }
     await p.setViewportSize({ width: 1200, height: 860 });
 

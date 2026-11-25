@@ -1,3 +1,9 @@
+## open-rzr 0.8.1.7
+
+- Experimental USB support for the Razer BlackWidow V3 Pro (1532:025A), with built-in effects and per-key lighting on an ANSI layout. Onboard macro assignment and storage are still unavailable.
+- The profile controls and device tabs fit on one row at the default window size.
+- Windows packaging copies only the installer for the current version.
+
 ## open-rzr 0.8.1.6
 
 ### Fixed
