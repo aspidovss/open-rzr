@@ -55,6 +55,19 @@ async function shot(p, name) {
   for (const lang of ["en", "ru"]) {
     const { p, errors } = await open(browser, "lang=" + lang);
 
+    for (const width of [1140, 920]) {
+      await p.setViewportSize({ width, height: 780 });
+      const fits = await p.evaluate(() => {
+        const profile = document.querySelector("#prof-box").getBoundingClientRect();
+        const nav = document.querySelector("#nav");
+        const tabs = nav.getBoundingClientRect();
+        return profile.right <= tabs.left && profile.top < tabs.bottom && tabs.top < profile.bottom
+          && nav.scrollWidth === nav.clientWidth;
+      });
+      check(`${lang}: profile and all device tabs fit on one row at ${width}px`, fits);
+    }
+    await p.setViewportSize({ width: 1200, height: 860 });
+
     // every tab, and every page of the mouse tab
     const tabs = await p.$$eval("#tabs button[data-tab]", (b) => b.map((x) => x.dataset.tab));
     for (const tab of tabs) {

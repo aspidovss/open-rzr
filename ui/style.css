@@ -41,17 +41,16 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 button.icon { padding: 4px 9px; min-width: 32px; }
 
 /* row 2: profile + sub tabs */
-/* the profile box keeps its width; the sub tabs stay centred while there is room, then move right,
-   and on a narrow window go to a second row (nothing overlaps) */
-#devbar { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; row-gap: 6px;
+/* Keep the profile controls and device tabs on the same row. */
+#devbar { display: flex; align-items: center; gap: 24px;
   min-height: 54px; padding: 8px 14px; background: #121212; border-bottom: 1px solid #222; }
 #devbar > .prof { flex: none; }
-/* never squeezed: when it does not fit next to the profile it moves to its own row */
-#devbar > #nav { flex: 0 0 auto; margin: 0 auto; max-width: 100%; }
+#devbar > #nav { flex: 0 1 auto; min-width: 0; margin: 0 auto; }
+#devbar > #nav button { flex: none; }
 #devbar.hidden { display: none; }
 .prof { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .pi { width: 20px; height: 20px; color: var(--muted); }
-#prof-select { min-width: 230px; background: #1a1a1a; }
+#prof-select { width: 230px; background: #1a1a1a; }
 #nav { display: flex; gap: 6px; }
 #nav button { white-space: nowrap; background: none; border: 0; border-radius: 16px; padding: 6px 14px; color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: .5px; }
 #nav button:hover { color: var(--text); }
@@ -459,7 +458,16 @@ table.list tr.warn td { color: #f0c060; }
 @media (max-width: 1180px) {
   #tabs button { padding: 0 10px; }
   #dev-select { width: 200px; }
-  #prof-select { min-width: 180px; }
+  #prof-select { width: 180px; }
+  body:not(.classic) #devbar { gap: 10px; }
+  #devbar > .devbar-r { display: none; }
+  #devbar > #nav { gap: 4px; }
+  #devbar > #nav button { padding-inline: 10px; }
+}
+@media (max-width: 1040px) {
+  body:not(.classic) #devbar > .prof { gap: 5px; }
+  body:not(.classic) #prof-select { width: 132px; }
+  #devbar > #nav button { padding-inline: 4px; letter-spacing: .25px; }
 }
 @media (max-width: 760px) {
   .brand { display: none; }
