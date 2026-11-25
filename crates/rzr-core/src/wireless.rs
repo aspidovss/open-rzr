@@ -864,6 +864,8 @@ pub const BLE_READ_ONLY: &str =
 pub struct BleBridge {
     address: String,
     reply: Option<[u8; crate::protocol::REPORT_LEN]>,
+    /// Verify a just-written binding with the per-button BLE command, as in the self-test.
+    verify_button: Option<[u8; 2]>,
     /// all bindings of one profile (`08 83 <profile> 00`): profile, when read, 16-byte records
     /// (`None`: the bulk read cannot be used for that profile — buttons are read one by one)
     bulk: Option<(u8, std::time::Instant, Option<Records>)>,
@@ -874,7 +876,7 @@ type Records = Vec<Vec<u8>>;
 
 impl BleBridge {
     pub fn new(address: &str) -> BleBridge {
-        BleBridge { address: address.to_string(), reply: None, bulk: None }
+        BleBridge { address: address.to_string(), reply: None, verify_button: None, bulk: None }
     }
 
     /// One request on the shared session; no reply closes it (the next request opens a new one).
@@ -1023,12 +1025,15 @@ impl crate::transport::Transport for BleBridge {
             log_debug!("usb", "BT set {class:02x} {cmd:02x} {} [{}] -> {}{}", r.sub, hex(&payload, 16), r.status_name, if r.error.is_empty() { String::new() } else { format!(" ({})", r.error) });
             // the cached bindings are stale now
             self.bulk = None;
+            if usb == crate::protocol::cmd::SET_BUTTON && r.status == status::OK {
+                self.verify_button = Some(sub);
+            }
             rep.status = if r.status == 0 { status::TIMEOUT } else { r.status };
             rep.arguments = args;
             self.reply = Some(rep.to_bytes());
             return Ok(());
         }
-        if usb == crate::protocol::cmd::GET_BUTTON {
+        if usb == crate::protocol::cmd::GET_BUTTON && self.verify_button.take() != Some([args[0], args[1]]) {
             // from the bulk read when it can be used: one request for a whole scan
             if let Some(recs) = self.bulk_records(args[0])? {
                 rep.status = match recs.iter().find(|r| r[0] == args[1]).and_then(|r| usb_args(usb, &args, r)) {

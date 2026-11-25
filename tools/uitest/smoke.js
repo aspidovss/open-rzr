@@ -18,7 +18,7 @@ const root = path.resolve(__dirname, "..", "..");
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".md": "text/markdown", ".png": "image/png", ".svg": "image/svg+xml", ".json": "application/json" };
 const server = http.createServer((req, res) => {
   const rel = decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "");
-  const file = path.resolve(root, rel);
+  const file = path.resolve(root, rel === "favicon.ico" ? "app/icons/icon.ico" : rel);
   if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] || "application/octet-stream" });
   fs.createReadStream(file).pipe(res);
@@ -51,7 +51,7 @@ async function shot(p, name) {
 (async () => {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   page = `http://127.0.0.1:${server.address().port}/ui/test.html`;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || undefined });
   for (const lang of ["en", "ru"]) {
     const { p, errors } = await open(browser, "lang=" + lang);
 
@@ -138,11 +138,11 @@ async function shot(p, name) {
     await p.click(`#modal:not(.hidden) button:has-text("${ok5}")`); await p.waitForTimeout(200);
     await p.click(`#modal:not(.hidden) button:has-text("${go5}")`); await p.waitForTimeout(200);
     await p.waitForSelector("#modal:not(.hidden) .mono", { timeout: 5000 }); await p.waitForTimeout(100);
-    await p.keyboard.press("Digit7"); await p.waitForTimeout(450);
+    await p.keyboard.press(lang === "en" ? "Digit7" : "Digit6"); await p.waitForTimeout(450);
     check(`${lang}: self-test ran all steps`, (await p.evaluate(() => (window.__ST__.selftest || []).join(","))) === "buttons,sleep,select:64,targets,target_write:2f,target_write:2orig,target_write:1f,target_write:1orig,target_write:1hs_f,target_write:1hs_orig,target_write:1f,read_target,target_write:1orig",
       await p.evaluate(() => (window.__ST__.selftest || []).join(",")));
-    check(`${lang}: self-test passed`, await p.evaluate(() => WL.test.stages.every((x) => x.ok)));
-    check(`${lang}: Hypershift and off/on stages reported`, await p.evaluate(() => WL.test.stages[3].note === t("wl.t_hs_ok") && WL.test.stages[4].note === t("wl.t_persist_yes")), await p.evaluate(() => WL.test.stages[3].note + " | " + WL.test.stages[4].note));
+    check(`${lang}: self-test verdict matches the key pressed`, await p.evaluate((passed) => WL.test.stages[4].ok === passed && wirelessText().includes(t(passed ? "wl.t_all_ok" : "wl.t_some_failed")), lang === "en"));
+    check(`${lang}: Hypershift and off/on stages reported`, await p.evaluate((passed) => WL.test.stages[3].note === t("wl.t_hs_ok") && WL.test.stages[4].note === t(passed ? "wl.t_persist_yes" : "wl.t_persist_read"), lang === "en"), await p.evaluate(() => WL.test.stages[3].note + " | " + WL.test.stages[4].note));
     check(`${lang}: self-test names the profile that works`, await p.evaluate(() => WL.test.stages[2].note.startsWith(t("wl.t_found", { p: "1" })) && !WL.test.stages[2].note.includes(t("wl.t_not_restored"))), await p.evaluate(() => WL.test.stages[2].note));
     await shot(p, `${lang}-selftest`);
     await p.click("#diag-views button[data-v=log]"); await p.waitForTimeout(100);
@@ -295,6 +295,7 @@ async function shot(p, name) {
     await p.waitForFunction(() => typeof S === "object" && !!S.conn, null, { timeout: 15000 });
     await p.evaluate(() => showPage("device")); await p.waitForTimeout(200);
     await p.waitForFunction(() => document.querySelectorAll("#ble-bind tr").length >= 5, null, { timeout: 5000 });
+    check(`${lang}: modular Bluetooth mouse has no fixed side buttons on top`, await p.evaluate(() => modularBody() && !hasKeypad() && !document.querySelector('#fig .mouse-part[data-id="4"], #fig .mouse-part[data-id="5"]')));
     check(`${lang}: Bluetooth bindings shown`, await p.isVisible("#ble-bind-card"));
     check(`${lang}: read-only mode`, await p.evaluate(() => document.body.classList.contains("read-only")));
     await shot(p, `${lang}-ble-device`);
@@ -350,21 +351,40 @@ async function shot(p, name) {
   }
   // Linux: an access rule of an older version is offered for update once; Settings shows its state
   {
-    const { p, errors } = await open(browser, "lang=ru&os=linux&udevold");
+    const { p, errors } = await open(browser, "lang=ru&os=linux&udevold&rz");
     await p.waitForSelector("#modal:not(.hidden)", { timeout: 5000 });
     check("outdated udev rule: update offered", (await p.textContent("#modal")).includes("Обновить правило доступа"));
     await p.click('#modal:not(.hidden) button:has-text("Обновить")'); await p.waitForTimeout(300);
     check("outdated udev rule: installed", await p.evaluate(() => !!window.__ST__.udevInstalled));
     await p.evaluate(() => showPage("settings")); await p.waitForTimeout(200);
     check("Settings: udev card on Linux, up to date", await p.isVisible("#udev-card") && (await p.textContent("#udev-state")).includes("актуальное"));
+    check("Linux: no Synapse controls or status request", !(await p.isVisible("#rz-card"))
+      && await p.evaluate(() => !window.__ST__.calls.includes("razer_software")));
     await shot(p, "ru-udev-card");
     check("udev without JavaScript errors", errors.length === 0, errors.slice(0, 3).join(" | "));
     await p.context().close();
   }
   {
-    const { p } = await open(browser, "lang=en");
-    await p.evaluate(() => showPage("settings")); await p.waitForTimeout(200);
+    const { p, errors } = await open(browser, "lang=en&rz");
+    const dialog = p.locator("#modal:not(.hidden)");
+    await p.click('#nav button[data-page="device"]');
+    await p.click("#btn-rz-stop2");
+    check("Windows: offers both Synapse stop options", await dialog.getByRole("button", { name: "Stop once" }).isEnabled()
+      && await dialog.getByRole("button", { name: "Stop and disable startup" }).isEnabled());
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    check("Cancel leaves Synapse running", await p.evaluate(() => !window.__ST__.calls.includes("stop_razer_software")));
+    await p.click("#btn-rz-stop2");
+    await dialog.getByRole("button", { name: "Stop once" }).click();
+    await p.waitForFunction(() => window.__ST__.rz.autostart === false);
+    await p.waitForSelector("#rz-notice", { state: "hidden" });
+    await p.click('#tabs button[data-tab="settings"]');
+    await p.click("#btn-rz-stop");
+    await dialog.getByRole("button", { name: "Stop and disable startup" }).click();
+    await p.waitForFunction(() => window.__ST__.rz.autostart === true);
+    check("Windows: one-time stop and startup change send different options", await p.evaluate(
+      () => window.__ST__.calls.filter((cmd) => cmd === "stop_razer_software").length === 2));
     check("Settings: no udev card on Windows", !(await p.isVisible("#udev-card")));
+    check("Synapse stop dialog without JavaScript errors", errors.length === 0, errors.join(" | "));
     await p.context().close();
   }
   // on-board slots: create a missing one; the list of all buttons beside the picture (Settings)

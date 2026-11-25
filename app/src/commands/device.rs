@@ -150,8 +150,8 @@ pub(crate) async fn connect(st: State<'_, AppState>, candidates: Vec<DeviceInfo>
     ci.low = m.get_low_battery_threshold().ok();
     let slots = m.read_profile_list();
     ci.profiles = slots.clone().unwrap_or_else(|| if ci.keyboard { vec![] } else { vec![1] });
-    ci.side_plates = m.spec.side_plates && m.has(feat::SIDE_PLATE);
-    if ci.side_plates {
+    ci.side_plates = m.spec.side_plates;
+    if ci.side_plates && m.has(feat::SIDE_PLATE) {
         ci.plate = m.side_plate().unwrap_or_else(|e| {
             log_warn!("device", "side plate not detected: {e}");
             None

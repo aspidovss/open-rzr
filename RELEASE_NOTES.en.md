@@ -1,3 +1,7 @@
+## open-rzr 0.8.1.8
+
+Fixed side-button rendering on mice with interchangeable plates. Bluetooth diagnostics and exported reports summarize all five write-test stages. After a Bluetooth binding write, the app reads the changed button individually to verify it.
+
 ## open-rzr 0.8.1.7
 
 - Experimental USB support for the Razer BlackWidow V3 Pro (1532:025A), with built-in effects and per-key lighting on an ANSI layout. Onboard macro assignment and storage are still unavailable.

@@ -114,6 +114,10 @@ impl RazerMouse {
     }
 
     pub fn set_button(&mut self, id: u8, action: &Action, profile: u8, hypershift: bool) -> Result<()> {
+        self.set_button_verified(id, action, profile, hypershift).map(|_| ())
+    }
+
+    pub(crate) fn set_button_verified(&mut self, id: u8, action: &Action, profile: u8, hypershift: bool) -> Result<Action> {
         self.need(feat::BUTTONS)?;
         let rec = action.encode().map_err(Error::Invalid)?;
         if action.kind == "raw" {
@@ -124,7 +128,18 @@ impl RazerMouse {
         let layer = if hypershift { " Hypershift" } else { "" };
         self.op(
             format!("set_button 0x{id:02x} profile {profile}{layer} -> {} [{}]", action.describe(), hexs(&rec)),
-            |m| m.req(cmd::SET_BUTTON, &a, Some(10)).map(|_| ()),
+            |m| {
+                m.req(cmd::SET_BUTTON, &a, Some(10))?;
+                let actual = m.get_button_raw(id, profile, hypershift)?;
+                let readback = Action::decode(&actual);
+                if actual != rec && readback != Action::decode(&rec) {
+                    return Err(Error::Io(format!(
+                        "button 0x{id:02x}, profile {profile}{layer}: wrote [{}], read back [{}]",
+                        hexs(&rec), hexs(&actual)
+                    )));
+                }
+                Ok(readback)
+            },
         )
     }
 

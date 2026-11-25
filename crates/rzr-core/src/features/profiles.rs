@@ -171,8 +171,7 @@ impl RazerMouse {
 
     /// Set one binding in a profile and on the mouse at once.
     pub fn set_profile_button(&mut self, p: &mut Profile, slot: u8, id: u8, hypershift: bool, a: &Action) -> Result<Action> {
-        self.set_button(id, a, slot, hypershift)?;
-        let back = self.get_button(id, slot, hypershift).unwrap_or_else(|_| a.clone());
+        let back = self.set_button_verified(id, a, slot, hypershift)?;
         p.set(id, hypershift, back.clone());
         Ok(back)
     }

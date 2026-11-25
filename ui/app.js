@@ -500,6 +500,7 @@ async function connect(i) {
     const c = await run("connect", { candidates: g.candidates }, (c) => t("status.connected", { name: deviceName(g.pid, c.name), fw: c.firmware }));
     c.pid = g.pid;
     S.conn = c;
+    S.plate = c.side_plates ? (c.plate ?? null) : null;
     setConnected();
     S.names = c.keyboard ? {} : (await quiet(api.call("button_names"))) || {};
     loadDevice(c);
@@ -581,6 +582,9 @@ function onDeviceChange(what) {
 }
 
 // ------------------------------------------------------------------ Razer software (Windows)
+const razerActive = (r) => !!r && (r.processes.length > 0 || r.services.some((s) => s.running));
+const razerAutostart = (r) => !!r && r.services.some((s) => s.start && s.start !== "demand" && s.start !== "disabled");
+
 async function loadRazer() {
   if (!S.info || S.info.os !== "windows") return null;
   const r = await api.call("razer_software");
@@ -591,7 +595,7 @@ async function loadRazer() {
   const svc = r.services.map((s) => `${s.display || s.name} — ${s.running ? t("or.running") : t("rz.stopped")}`).join("\n");
   kv.append(el("dt", { text: t("rz.services") }), el("dd", { text: svc || "—", style: "white-space:pre-wrap" }),
     el("dt", { text: t("rz.programs") }), el("dd", { text: r.processes.join(", ") || "—" }));
-  $("#btn-rz-stop").disabled = !(r.processes.length || r.services.some((s) => s.running)) && !$("#rz-autostart").checked;
+  $("#btn-rz-stop").disabled = !razerActive(r) && !razerAutostart(r);
   $("#btn-rz-start").disabled = !r.can_restore;
   return r;
 }
@@ -599,7 +603,7 @@ async function loadRazer() {
 /** Synapse talks to the mouse too: warn on the Device tab. */
 async function checkRazer() {
   const r = await quiet(loadRazer());
-  const active = !!r && (r.processes.length > 0 || r.services.some((s) => s.running));
+  const active = razerActive(r);
   $("#rz-notice").classList.toggle("hidden", !active);
   const names = active ? [...r.services.filter((s) => s.running).map((s) => s.display || s.name), ...r.processes] : [];
   if (active) $("#rz-notice-text").textContent = t("rz.notice", { list: names.join(", ") });
@@ -618,8 +622,15 @@ function watchRazer() {
 }
 
 async function stopRazer() {
-  const autostart = $("#rz-autostart").checked;
-  if (!(await confirmBox(t("rz.title"), t(autostart ? "rz.confirm_autostart" : "rz.confirm"), t("rz.stop")))) return;
+  if (S.info?.os !== "windows") return;
+  const autostart = await modal((box, close) => {
+    box.append(el("h2", { text: t("rz.stop") }), el("div", { text: t("rz.stop_note") }),
+      el("div", { class: "row buttons wrap" },
+        el("button", { text: t("common.cancel"), onclick: () => close(null) }),
+        el("button", { class: "primary", text: t("rz.stop_once"), disabled: !razerActive(S.razer), onclick: () => close(false) }),
+        el("button", { text: t("rz.stop_and_disable"), disabled: !razerAutostart(S.razer), onclick: () => close(true) })));
+  });
+  if (autostart === null) return;
   try {
     await run("stop_razer_software", { autostart }, t("rz.stopped_ok"));
   } catch (e) {
@@ -704,7 +715,7 @@ function wirelessText() {
   const L = [`open-rzr wireless report — address ${r.address || "?"}, battery ${r.battery ?? "?"}`];
   WL.ble.forEach((b) => L.push(bleStall(b) ? `BT get: ${b.error}` :
     `BT get ${h2(b.class)} ${h2(b.cmd)} ${b.sub}: ${b.status ? h2(b.status) + " " + b.status_name : "—"} len ${b.len} [${b.data}] ${b.meaning}${b.error ? " (" + b.error + ")" : ""}`));
-  if (WL.test) { L.push("BT write self-test:"); WL.test.stages.forEach((st) => { L.push(`  stage ${st.n}: ${st.ok == null ? "—" : st.ok ? "OK" : "FAILED"} ${st.note || ""}`); st.lines.forEach((x) => L.push("    " + x)); }); }
+  if (WL.test) { L.push("BT write self-test:", WL.test.summary || "…"); WL.test.stages.forEach((st) => { L.push(`  stage ${st.n}: ${st.ok == null ? "—" : st.ok ? "OK" : "FAILED"} ${st.note || ""}`); st.lines.forEach((x) => L.push("    " + x)); }); }
   r.hid.forEach((c) => L.push(`HID ${wlCol(c.path)} page ${hex4(c.usage_page)}/${hex4(c.usage)} in ${c.input_len} out ${c.output_len} feature ${c.feature_len} ids in ${wlIds(c.input_ids)} out ${wlIds(c.output_ids)} feature ${wlIds(c.feature_ids)} ${c.error}${c.descriptor ? "\n  descriptor " + c.descriptor : ""}`));
   r.probes.forEach((p) => L.push(`probe ${wlCol(p.path)} ${p.method}: ${p.ok ? "RAZER REPLY" : "—"} ${p.detail}`));
   if (r.gatt_error) L.push("GATT: " + r.gatt_error);
@@ -831,23 +842,26 @@ async function bleSelfTest() {
       const works = key === "7";
       log(stages[2], `variant ${label}: ${ok ? "OK" : "refused"}, read back ${same ? "as written" : "unchanged"}, key ${JSON.stringify(key)}`);
       notes.push(`${label}: ${works ? "7 ✓" : key ? JSON.stringify(key) : ok ? "—" : t("wl.t_refused")}${same ? " (" + t("wl.t_read_changed") + ")" : ""}`);
-      for (const tg of [...v].reverse()) { const c = await step(stages[2], "target_write", tg, "orig"); if (c.ok && !c.same) restored = false; }
+      for (const tg of [...v].reverse()) { const c = await step(stages[2], "target_write", tg, "orig"); if (!c.ok || !c.same) restored = false; }
       if (works) found = label;
       drawWireless();
     }
-    stages[2].ok = found !== null;
+    stages[2].ok = found !== null && restored;
     stages[2].note = (found !== null ? t("wl.t_found", { p: found }) + " · " : "") + notes.join(" · ") + (restored ? "" : " · " + t("wl.t_not_restored", { b: B }));
     const k = await press(t("wl.t_back_text", { b: B }));
     log(stages[2], "after restore pressed " + JSON.stringify(k));
     // the original binding may be anything (a key, "back"…): it only must not type 7 any more
-    if (k === "7") stages[2].note += " · " + t("wl.t_not_restored", { b: B });
+    if (k === "7") {
+      stages[2].ok = false;
+      stages[2].note += " · " + t("wl.t_not_restored", { b: B });
+    }
     // the profiles to write: those of the variant that worked, else the active one
     const tgs = found !== null ? found.split("+").map(Number) : [act >= 1 && act <= 5 ? act : 1];
     // stage 4: the Hypershift layer (byte 01) of the first of them; checked by reading back
     status(t("wl.t_running", { n: 4 })); drawWireless();
     const h = await step(stages[3], "target_write", tgs[0], "hs_f");
     const hb = await step(stages[3], "target_write", tgs[0], "hs_orig");
-    stages[3].ok = h.ok && !!h.same;
+    stages[3].ok = h.ok && !!h.same && hb.ok && !!hb.same;
     stages[3].note = (h.ok ? (h.same ? t("wl.t_hs_ok") : t("wl.t_hs_no")) : t("wl.t_refused")) + (hb.ok && hb.same ? "" : " · " + t("wl.t_not_restored", { b: B }));
     // stage 5 (if the user agrees): does a binding stay after the mouse is switched off and on?
     if (found !== null && await confirmBox(t("wl.t_persist_title"), t("wl.t_persist_ask", { b: B }), t("wl.t_persist_start"))) {
@@ -873,15 +887,17 @@ async function bleSelfTest() {
           try { const c = await step(stages[4], "target_write", tg, "orig"); restored = restored && c.ok && !!c.same; break; } catch (e) { await new Promise((res) => setTimeout(res, 2000)); restored = false; }
         }
       }
-      stages[4].ok = back ? true : false;
+      stages[4].ok = !!kept && key === "7" && restored;
       stages[4].note = (!go ? t("wl.t_persist_skipped") : !back ? t("wl.t_persist_noanswer") : kept && key === "7" ? t("wl.t_persist_yes") : kept ? t("wl.t_persist_read") : t("wl.t_persist_no")) + (restored ? "" : " · " + t("wl.t_not_restored", { b: B }));
       if (!go) stages[4].ok = null;
     } else stages[4].note = t("wl.t_persist_skipped");
     }
-    const ok = stages.filter((x) => x.ok !== null).every((x) => x.ok);
-    status(ok ? t("wl.t_all_ok") : t("wl.t_some_failed"), !ok);
+    const ok = stages.every((x) => x.ok === true);
+    WL.test.summary = t(ok ? "wl.t_all_ok" : "wl.t_some_failed");
+    status(WL.test.summary, !ok);
   } catch (e) {
-    status(errText(e), true);
+    WL.test.summary = t("wl.t_some_failed") + " · " + errText(e);
+    status(WL.test.summary, true);
   } finally {
     WL.busy = false;
     drawWireless();
@@ -965,11 +981,12 @@ function drawWireless() {
     test.append(el("div", { class: "card-title", text: t("wl.t_title") }), el("div", { class: "muted small", text: t("wl.t_note") }),
       el("div", { class: "wl-x" }, el("button", { class: "primary", text: t("wl.t_start"), disabled: WL.busy, onclick: () => quiet(bleSelfTest()) })));
     if (WL.test) {
+      if (WL.test.summary) test.append(el("strong", { text: WL.test.summary }));
       const tt = el("table", { class: "list small" });
       WL.test.stages.forEach((st) => {
         tt.append(el("tr", { class: st.ok ? "ok" : "" },
           el("td", { style: "white-space:nowrap;font-family:inherit", text: t(["wl.t_stage1", "wl.t_stage2", "wl.t_stage3", "wl.t_stage4", "wl.t_stage5"][st.n - 1]) }),
-          el("td", { text: st.ok == null ? "…" : st.ok ? "✓" : "✗" }),
+          el("td", { text: st.ok == null ? (WL.test.summary ? "—" : "…") : st.ok ? "✓" : "✗" }),
           el("td", { class: "small", text: st.note })));
         if (st.lines.length) tt.append(el("tr", {}, el("td", { colspan: 3, class: "mono wrap muted", text: st.lines.join("\n"), style: "white-space:pre-wrap" })));
       });
@@ -1142,7 +1159,6 @@ function loadDevice(c) {
   showExperimental(c);
   $("#batt-card").classList.toggle("hidden", !c.has_battery);
   if (c.battery != null) showBattery([c.battery, c.charging]);
-  if (S.plate === null || S.plate === undefined) S.plate = c.side_plates ? (c.plate ?? null) : null;
   S.plateChoice = c.plate_choice || "auto";
   // Bluetooth: settings can be read; of them only button bindings and the sleep timer changed
   document.body.classList.toggle("read-only", !!c.read_only);
@@ -1796,7 +1812,8 @@ function shortDesc(a) {
 }
 
 /** A Naga without plates (Naga X, Left-Handed, V2 HyperSpeed): 12 fixed thumb keys 0x40..0x4B. */
-const hasKeypad = () => !!S.conn && !S.conn.side_plates && !!S.profile && range(0x40, 12).some((id) => pairOf(id));
+const modularBody = () => S.conn.side_plates || /\bNaga (?:Trinity|Classic|(?:V[23] )?Pro)\b/i.test(S.conn.name);
+const hasKeypad = () => !!S.conn && !modularBody() && !!S.profile && range(0x40, 12).some((id) => pairOf(id));
 
 function drawFigure() {
   const view = String(S.figView);
@@ -1806,7 +1823,7 @@ function drawFigure() {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 860 420");
-  svg.innerHTML = MOUSE_ART.defs + MOUSE_ART.top + (S.conn.side_plates ? "" : MOUSE_ART.topSide);
+  svg.innerHTML = MOUSE_ART.defs + MOUSE_ART.top + (modularBody() ? "" : MOUSE_ART.topSide);
   // parts this mouse does not have (other models) are left out of the drawing
   svg.querySelectorAll(".mouse-part[data-id]").forEach((p) => { if (!bindingOf(+p.dataset.id)) p.remove(); });
   const L = 330, R = 570;
@@ -1814,7 +1831,7 @@ function drawFigure() {
     const id = +k;
     const a = bindingOf(id);
     if (!a) continue;
-    if (S.conn.side_plates && plateOf(id)) continue; // side buttons are on the side views
+    if (modularBody() && plateOf(id)) continue; // side buttons are on the side views
     const x2 = f.side === "l" ? L : R;
     const line = document.createElementNS(ns, "polyline");
     line.setAttribute("class", "lead");
@@ -1942,7 +1959,7 @@ const plateOf = (id) => (id >= 0x40 && id <= 0x4b ? 12 : id >= 0x50 && id <= 0x5
 function activePlate() {
   if (["2", "6", "12"].includes(String(S.figView))) return +S.figView;
   const c = S.plateChoice || "auto";
-  if (c === "auto") return S.plate || 12;
+  if (c === "auto") return S.plate ?? 0;
   if (c === "all") return 0;
   return +c;
 }
@@ -2122,7 +2139,7 @@ function layerMenu(anchor) {
 }
 
 async function checkPlate() {
-  if (!S.conn || !S.conn.side_plates || S.busy || (S.plateChoice || "auto") !== "auto") return;
+  if (!S.conn || !S.conn.side_plates || !S.conn.features?.includes("side_plate") || S.busy || (S.plateChoice || "auto") !== "auto") return;
   if ($("#page-buttons").classList.contains("hidden")) return;
   const p = await quiet(api.call("side_plate"));
   if (p === undefined || p === S.plate) return;
@@ -3890,7 +3907,6 @@ function bind() {
   $("#btn-rz-stop2").addEventListener("click", stopRazer);
   $("#btn-rz-start").addEventListener("click", startRazer);
   $("#btn-rz-refresh").addEventListener("click", () => run("razer_software").then(checkRazer));
-  $("#rz-autostart").addEventListener("change", () => { if (S.razer) loadRazer(); });
   window.addEventListener("error", (e) => ulog(`UI error: ${e.message} (${e.filename}:${e.lineno})`, "ERROR"));
   window.addEventListener("unhandledrejection", (e) => ulog(`unhandled rejection: ${e.reason}`, "WARN"));
 }
