@@ -3739,12 +3739,21 @@ async function checkUpdates(manual) {
   if (optional && !S.settings.updates_optional) newer = false;
   await quiet(api.call("update_checked", { result: newer ? `${ver} available${optional ? " (optional)" : ""}` : optional ? `optional ${ver} not shown (off in Settings)` : `up to date (latest ${ver || "?"})` }));
   if (!newer) {
+    S.update = null;
+    $("#update-banner").classList.add("hidden");
+    $("#btn-update-download").classList.add("hidden");
     if (manual) state.textContent = optional ? t("upd.optional_hidden", { v: ver }) : t("upd.latest", { v: S.info.version });
     return;
   }
   if (manual) state.textContent = t("upd.available", { v: ver });
   if (!manual && S.settings.update_skip === ver) return;
   S.update = { version: ver, url: String(rel.html_url || "").startsWith(PROJECT) ? rel.html_url : `${PROJECT}/releases/latest` };
+  const suffix = { windows: "windows-x64-setup.exe", linux: "linux-x86_64.tar.gz" }[S.info.os];
+  const name = `open-rzr-${ver}-${suffix}`;
+  S.update.asset = (rel.assets || []).find((a) => a.name === name && a.size > 0);
+  for (const button of $$("#btn-update-download, #btn-banner-download")) {
+    button.classList.toggle("hidden", !S.update.asset);
+  }
   $("#update-text").textContent = t("upd.available", { v: ver });
   $("#update-banner").classList.remove("hidden");
 }
@@ -3753,7 +3762,31 @@ async function autoCheckUpdates() {
   if (S.settings.updates && (await quiet(api.call("update_due")))) await quiet(checkUpdates(false));
 }
 
+async function downloadUpdate() {
+  const update = S.update;
+  if (!update?.asset || S.downloading) return;
+  S.downloading = true;
+  const buttons = $$("#btn-update-download, #btn-banner-download");
+  buttons.forEach((b) => { b.disabled = true; });
+  const report = (message) => {
+    if (S.update !== update) return;
+    $("#update-state").textContent = message;
+    $("#update-text").textContent = message;
+  };
+  report(t("upd.downloading"));
+  try {
+    const path = await api.call("download_update", { version: update.version, size: update.asset.size });
+    report(t("upd.saved", { path }));
+  } catch (e) {
+    report(t("upd.download_error", { error: errText(e) }));
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+    S.downloading = false;
+  }
+}
+
 function bindUpdates() {
+  $$("#btn-update-download, #btn-banner-download").forEach((b) => b.addEventListener("click", downloadUpdate));
   $("#set-updates").addEventListener("change", async (e) => {
     S.settings.updates = e.target.checked;
     await run("set_updates", { enabled: e.target.checked }, t("set.saved"));

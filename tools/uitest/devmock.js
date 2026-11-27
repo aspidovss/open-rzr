@@ -268,6 +268,7 @@
     update_due: () => !!st.updates,
     update_checked: ({ result }) => { st.updateResult = result; return null; },
     update_skip: ({ version }) => { st.skipped = version; return null; },
+    download_update: ({ version, size }) => { st.download = { version, size }; return "Downloads/open-rzr-" + version + "-windows-x64-setup.exe"; },
     open_project_page: ({ url }) => { st.opened = url; return null; },
     removal_info: () => ({ uninstaller: window.__INSTALLED__ ? "C:\\Users\\u\\AppData\\Local\\open-rzr\\uninstall.exe" : null, package: false,
       program: "C:\\Tools\\open-rzr", autostart: !!st.auto.enabled, udev_rule: false, razer_stopped: true,

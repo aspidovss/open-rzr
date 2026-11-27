@@ -8,7 +8,7 @@ An open-source configurator for **Razer mice** on **Windows and Linux** — firs
 
 ![open-rzr — Customize](ui/docs/images/customize.png)
 
-- **No analytics, no telemetry, no accounts.** The only network request is an optional check for new versions on GitHub, which you can turn off (the program asks at first start).
+- **No analytics, no telemetry, no accounts.** Update checks on GitHub are optional. When a new release is available, you can download it from Settings.
 - **Settings stay in the mouse.** Bindings, DPI stages, macros and lighting are written to the on-board memory and work without the program, on any computer.
 - **Light in the background.** Closed to the tray it takes about **7 MB**: the window and its WebView are closed completely, only the tray, automatic profile switching and macro actions keep running.
 - **Always-on local log** of every action and USB packet — one click makes a report.

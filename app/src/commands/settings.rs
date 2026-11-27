@@ -225,3 +225,55 @@ pub(crate) async fn open_project_page(url: String) -> R<()> {
     let r = std::process::Command::new("xdg-open").arg(&url).env_remove("LD_LIBRARY_PATH").spawn();
     r.map(|_| ()).map_err(|e| format!("[io] {e}"))
 }
+
+/// Download a published package without executing it. Only numeric release tags and the
+/// platform's fixed artifact name can enter the URL or destination path.
+#[tauri::command]
+pub(crate) async fn download_update(app: tauri::AppHandle, version: String, size: u64) -> R<String> {
+    use tauri::Manager;
+    let components: Vec<_> = version.split('.').collect();
+    if !(3..=4).contains(&components.len()) || !components.iter().all(|v| !v.is_empty() && v.len() <= 9 && v.bytes().all(|b| b.is_ascii_digit())) || size == 0 {
+        return Err("Invalid release metadata".into());
+    }
+    let suffix = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => "windows-x64-setup.exe",
+        ("linux", "x86_64") => "linux-x86_64.tar.gz",
+        _ => return Err("No release package for this platform".into()),
+    };
+    let dir = app.path().download_dir().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || -> R<String> {
+        let name = format!("open-rzr-{version}-{suffix}");
+        let url = format!("https://github.com/aspidovss/open-rzr/releases/download/v{version}/{name}");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let tmp = tempfile::NamedTempFile::new_in(&dir).map_err(|e| e.to_string())?;
+        #[cfg(windows)]
+        let curl = std::path::PathBuf::from(std::env::var_os("SystemRoot").ok_or("Missing SystemRoot")?).join("System32/curl.exe");
+        #[cfg(not(windows))]
+        let curl = "curl";
+        let mut cmd = std::process::Command::new(curl);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        let result = cmd.args(["--disable", "--fail", "--location", "--silent", "--show-error", "--proto", "=https",
+                "--proto-redir", "=https", "--connect-timeout", "20", "--max-time", "900", "--output"])
+            .arg(tmp.path()).arg(url).output().map_err(|e| format!("curl: {e}"))?;
+        if !result.status.success() {
+            return Err(String::from_utf8_lossy(&result.stderr).trim().to_owned());
+        }
+        if tmp.as_file().metadata().map_err(|e| e.to_string())?.len() != size {
+            return Err("Incomplete download".into());
+        }
+        let mut temp = tmp;
+        for copy in 1.. {
+            let path = dir.join(if copy == 1 { name.clone() } else { format!("open-rzr-{version}-{copy}-{suffix}") });
+            match temp.persist_noclobber(&path) {
+                Ok(_) => return Ok(path.display().to_string()),
+                Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => temp = e.file,
+                Err(e) => return Err(e.error.to_string()),
+            }
+        }
+        unreachable!()
+    }).await.map_err(|e| e.to_string())?
+}

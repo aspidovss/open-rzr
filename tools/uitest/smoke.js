@@ -191,7 +191,7 @@ async function shot(p, name) {
     p.on("pageerror", (e) => errors.push(e.message));
     p.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
     await p.route("https://api.github.com/**", (r) => r.fulfill({ contentType: "application/json",
-      body: JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/aspidovss/open-rzr/releases/tag/v9.9.9", draft: false, prerelease: false }) }));
+      body: JSON.stringify({ tag_name: "v9.9.9", assets: [{ name: "open-rzr-9.9.9-windows-x64-setup.exe", size: 500 }], html_url: "https://github.com/aspidovss/open-rzr/releases/tag/v9.9.9", draft: false, prerelease: false }) }));
     await p.goto(page + "?firstrun&lang=" + lang);
     await p.waitForSelector("#modal:not(.hidden) pre.eula", { timeout: 10000 });
     await p.waitForFunction(() => document.querySelector("pre.eula").textContent.length > 500);
@@ -212,6 +212,9 @@ async function shot(p, name) {
     await p.waitForTimeout(500);
     check(`${lang}: new version banner`, await p.isVisible("#update-banner"), await p.textContent("#update-text"));
     await shot(p, `${lang}-update-banner`);
+    await p.click("#btn-banner-download");
+    await p.waitForFunction(() => document.querySelector("#update-text").textContent.includes("Downloads/"));
+    check(`${lang}: release downloaded only on request`, await p.evaluate(() => window.__ST__.download.version === "9.9.9" && window.__ST__.download.size === 500));
     await p.click("#btn-update-notes"); await p.waitForTimeout(100);
     check(`${lang}: "What's new" opens the release page`, (await p.evaluate(() => window.__ST__.opened)) === "https://github.com/aspidovss/open-rzr/releases/tag/v9.9.9");
     await p.click("#btn-update-hide"); await p.waitForTimeout(100);
@@ -219,6 +222,7 @@ async function shot(p, name) {
     await p.click('#tabs button[data-tab="settings"]'); await p.waitForTimeout(100);
     check(`${lang}: setting is on`, await p.isChecked("#set-updates"));
     await p.click("#btn-update-check"); await p.waitForTimeout(400);
+    check(`${lang}: download available in Settings`, await p.isVisible("#btn-update-download"));
     check(`${lang}: manual check`, /9\.9\.9/.test(await p.textContent("#update-state")));
     await p.click("#btn-eula"); await p.waitForTimeout(300);
     check(`${lang}: agreement can be read again`, await p.isVisible("pre.eula"));
