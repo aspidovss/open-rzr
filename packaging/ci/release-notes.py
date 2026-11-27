@@ -89,7 +89,7 @@ def main(argv):
     prev = max(older) if older else (0, 0, 0, 0)
     take = lambda secs: [s for s in secs if prev < s[0] <= ver]
     en, ru = take(sections(ROOT / "RELEASE_NOTES.en.md")), take(sections(ROOT / "RELEASE_NOTES.md"))
-    v = text(ver)
+    v = args[0].lstrip("vV")
     out = [
         f"**open-rzr {v}** — Razer mouse configurator for Windows and Linux, no telemetry, no accounts.",
         "",

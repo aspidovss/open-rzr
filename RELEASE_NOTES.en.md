@@ -1,3 +1,7 @@
+## open-rzr 0.9.0.0
+
+Download updates directly from Settings or the new-version notification. The Windows x64 installer or Linux x86_64 archive is saved to Downloads. The app shows the saved path so you can start installation yourself.
+
 ## open-rzr 0.8.1.8
 
 Fixed side-button rendering on mice with interchangeable plates. Bluetooth diagnostics and exported reports summarize all five write-test stages. After a Bluetooth binding write, the app reads the changed button individually to verify it.
